@@ -64,9 +64,9 @@ IntelliJ IDEA, VS Code, Claude Desktop, Claude Code, Cursor, Windsurf):
   "mcpServers": {
     "swing": {
       "command": "java",
-      "args": ["-jar", "/path/to/swing-mcp-server-1.1.0.jar"],
+      "args": ["-jar", "/path/to/swing-mcp-server-1.2.0.jar"],
       "env": {
-        "SWING_MCP_AGENT_JAR": "/path/to/swing-mcp-agent-1.1.0.jar"
+        "SWING_MCP_AGENT_JAR": "/path/to/swing-mcp-agent-1.2.0.jar"
       }
     }
   }
@@ -75,7 +75,7 @@ IntelliJ IDEA, VS Code, Claude Desktop, Claude Code, Cursor, Windsurf):
 
 Try it against the demo app:
 
-1. `launch_app` with `java -jar swing-mcp-demo/target/swing-mcp-demo-1.1.0.jar`
+1. `launch_app` with `java -jar swing-mcp-demo/target/swing-mcp-demo-1.2.0.jar`
 2. `take_snapshot` to discover component UIDs
 3. `click`, `fill`, `select_option`, … to interact
 

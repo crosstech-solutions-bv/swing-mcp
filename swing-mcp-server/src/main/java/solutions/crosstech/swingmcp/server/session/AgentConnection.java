@@ -44,28 +44,42 @@ public class AgentConnection implements Closeable {
     private final PrintWriter writer;
     private final ObjectMapper mapper = new ObjectMapper();
     private final long readTimeoutMs;
+    private final String token;
 
     /** Request ids that timed out; their late responses are silently dropped. */
     private final Set<String> abandonedRequests = new LinkedHashSet<>();
 
-    private AgentConnection(Socket socket, long readTimeoutMs) throws IOException {
+    private AgentConnection(Socket socket, long readTimeoutMs, String token) throws IOException {
         this.socket = socket;
         this.readTimeoutMs = readTimeoutMs;
+        this.token = token;
         this.reader = new BufferedReader(new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
         this.writer = new PrintWriter(socket.getOutputStream(), true, StandardCharsets.UTF_8);
     }
 
     /**
-     * Opens a connection to the agent on localhost.
+     * Opens an unauthenticated connection to the agent on localhost (used by tests).
      *
      * @param port          the agent's listening port
      * @param readTimeoutMs socket read timeout for command round-trips
      */
     public static AgentConnection connect(int port, long readTimeoutMs) throws IOException {
+        return connect(port, readTimeoutMs, null);
+    }
+
+    /**
+     * Opens a connection to the agent on localhost, authenticating every
+     * command with the per-session {@code token} the agent generated.
+     *
+     * @param port          the agent's listening port
+     * @param readTimeoutMs socket read timeout for command round-trips
+     * @param token         per-session auth token, or null for no authentication
+     */
+    public static AgentConnection connect(int port, long readTimeoutMs, String token) throws IOException {
         Socket socket = new Socket();
         socket.connect(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), CONNECT_TIMEOUT_MS);
         socket.setSoTimeout((int) readTimeoutMs);
-        return new AgentConnection(socket, readTimeoutMs);
+        return new AgentConnection(socket, readTimeoutMs, token);
     }
 
     /**
@@ -78,7 +92,7 @@ public class AgentConnection implements Closeable {
     public synchronized Object send(CommandType type, Map<String, Object> params) {
         String requestId = UUID.randomUUID().toString();
         try {
-            String json = mapper.writeValueAsString(new CommandRequest(requestId, type, params));
+            String json = mapper.writeValueAsString(new CommandRequest(requestId, type, params, token));
             writer.println(json);
             long deadline = System.currentTimeMillis() + readTimeoutMs;
             while (true) {
@@ -94,7 +108,9 @@ public class AgentConnection implements Closeable {
                     throw timeout(type, requestId);
                 }
                 if (line == null) {
-                    throw new AgentCommandException("Agent connection closed while waiting for response to " + type);
+                    throw new AgentCommandException("The target application has exited or closed the agent"
+                        + " connection while handling " + type + ". This session is no longer usable —"
+                        + " relaunch with launch_app or reattach with attach_to_app.");
                 }
                 CommandResponse response = mapper.readValue(line, CommandResponse.class);
                 if (!requestId.equals(response.requestId())) {

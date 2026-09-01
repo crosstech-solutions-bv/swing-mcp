@@ -61,30 +61,33 @@ public class ApplicationService {
     public Map<String, Object> launch(String command, String workingDir, String sessionId) {
         Path agentJar = requireAgentJar();
         try {
+            // Created with owner-only permissions (0600 on POSIX; user-scoped temp
+            // ACL on Windows). It is intentionally NOT deleted: the agent writes the
+            // port and auth token into this existing file, so the token is never
+            // exposed via a freshly-created world-readable file.
             Path portFile = Files.createTempFile("swing-mcp-port", ".txt");
-            Files.deleteIfExists(portFile);
+            portFile.toFile().deleteOnExit();
 
-            List<String> args = new ArrayList<>(List.of(command.trim().split("\\s+")));
+            List<String> args = new ArrayList<>(tokenizeCommand(command));
             if (args.isEmpty() || args.getFirst().isBlank()) {
                 throw new IllegalArgumentException("Launch command must not be empty");
             }
-            String agentArg = "-javaagent:" + agentJar.toAbsolutePath()
-                + "=portMin=" + properties.getAgentPortMin()
-                + ",portMax=" + properties.getAgentPortMax()
-                + ",responseFile=" + portFile.toAbsolutePath();
-            args.add(1, agentArg);
+            args.add(1, buildAgentArg(agentJar, portFile));
 
             ProcessBuilder pb = new ProcessBuilder(args);
             if (workingDir != null && !workingDir.isBlank()) {
                 pb.directory(Path.of(workingDir).toFile());
             }
             Path outputLog = Files.createTempFile("swing-mcp-app", ".log");
+            outputLog.toFile().deleteOnExit();
             pb.redirectErrorStream(true);
             pb.redirectOutput(outputLog.toFile());
             Process process = pb.start();
 
-            int port = awaitPortFile(portFile, process, outputLog);
-            AgentConnection connection = AgentConnection.connect(port, properties.getToolTimeoutMs());
+            AgentHandshake handshake = awaitPortFile(portFile, process, outputLog);
+            int port = handshake.port();
+            AgentConnection connection =
+                AgentConnection.connect(port, properties.getToolTimeoutMs(), handshake.token());
             AppSession session = new LaunchedAppSession(process, connection, port, "Launched: " + command);
             String id = registry.register(sessionId, session);
             LOG.info("Launched application pid={} agentPort={} sessionId={}", process.pid(), port, id);
@@ -115,16 +118,22 @@ public class ApplicationService {
     public Map<String, Object> attach(long pid, String sessionId) {
         Path agentJar = requireAgentJar();
         try {
+            // Created with owner-only permissions (0600 on POSIX; user-scoped temp
+            // ACL on Windows). It is intentionally NOT deleted: the agent writes the
+            // port and auth token into this existing file, so the token is never
+            // exposed via a freshly-created world-readable file.
             Path portFile = Files.createTempFile("swing-mcp-port", ".txt");
-            Files.deleteIfExists(portFile);
+            portFile.toFile().deleteOnExit();
 
-            String agentArgs = "portMin=" + properties.getAgentPortMin()
-                + ",portMax=" + properties.getAgentPortMax()
-                + ",responseFile=" + portFile.toAbsolutePath();
+            // buildAgentArg returns "-javaagent:...=<args>"; attach needs just the <args>.
+            String agentArgs = buildAgentArg(agentJar, portFile).substring(
+                ("-javaagent:" + agentJar.toAbsolutePath() + "=").length());
             loadAgent(pid, agentJar, agentArgs);
 
-            int port = awaitPortFile(portFile, null, null);
-            AgentConnection connection = AgentConnection.connect(port, properties.getToolTimeoutMs());
+            AgentHandshake handshake = awaitPortFile(portFile, null, null);
+            int port = handshake.port();
+            AgentConnection connection =
+                AgentConnection.connect(port, properties.getToolTimeoutMs(), handshake.token());
             AppSession session = new AttachedAppSession(pid, connection, port);
             String id = registry.register(sessionId, session);
             LOG.info("Attached to pid={} agentPort={} sessionId={}", pid, port, id);
@@ -238,7 +247,57 @@ public class ApplicationService {
         }
     }
 
-    private int awaitPortFile(Path portFile, Process process, Path outputLog) throws IOException {
+    /** The port and per-session auth token the agent reports back via the response file. */
+    private record AgentHandshake(int port, String token) {}
+
+    /** Builds the {@code -javaagent:<jar>=<args>} argument, carrying the port range,
+     *  response file and the {@code evaluateEnabled} gate (so the agent enforces it too). */
+    private String buildAgentArg(Path agentJar, Path portFile) {
+        return "-javaagent:" + agentJar.toAbsolutePath()
+            + "=portMin=" + properties.getAgentPortMin()
+            + ",portMax=" + properties.getAgentPortMax()
+            + ",evaluateEnabled=" + properties.getEvaluate().isEnabled()
+            + ",responseFile=" + portFile.toAbsolutePath();
+    }
+
+    /**
+     * Splits a command line into arguments, honoring single and double quotes
+     * so paths and arguments containing spaces survive intact.
+     */
+    static List<String> tokenizeCommand(String command) {
+        List<String> tokens = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        char quote = 0;
+        boolean inToken = false;
+        for (int i = 0; i < command.length(); i++) {
+            char c = command.charAt(i);
+            if (quote != 0) {
+                if (c == quote) {
+                    quote = 0;
+                } else {
+                    current.append(c);
+                }
+            } else if (c == '"' || c == '\'') {
+                quote = c;
+                inToken = true;
+            } else if (Character.isWhitespace(c)) {
+                if (inToken) {
+                    tokens.add(current.toString());
+                    current.setLength(0);
+                    inToken = false;
+                }
+            } else {
+                current.append(c);
+                inToken = true;
+            }
+        }
+        if (inToken) {
+            tokens.add(current.toString());
+        }
+        return tokens;
+    }
+
+    private AgentHandshake awaitPortFile(Path portFile, Process process, Path outputLog) throws IOException {
         long deadline = System.currentTimeMillis() + PORT_FILE_TIMEOUT_MS;
         while (System.currentTimeMillis() < deadline) {
             if (process != null && !process.isAlive()) {
@@ -246,10 +305,18 @@ public class ApplicationService {
                     + outputTail(outputLog));
             }
             if (Files.isRegularFile(portFile)) {
-                String content = Files.readString(portFile).trim();
+                String content = Files.readString(portFile).strip();
                 if (!content.isEmpty()) {
-                    Files.deleteIfExists(portFile);
-                    return Integer.parseInt(content);
+                    String[] lines = content.split("\\R", 2);
+                    String portText = lines[0].strip();
+                    String token = lines.length > 1 ? lines[1].strip() : "";
+                    // Both lines are required: a port without a token means the agent
+                    // is still writing (or is an incompatible version) — keep waiting
+                    // rather than proceed unauthenticated.
+                    if (portText.matches("\\d+") && !token.isEmpty()) {
+                        Files.deleteIfExists(portFile);
+                        return new AgentHandshake(Integer.parseInt(portText), token);
+                    }
                 }
             }
             try {

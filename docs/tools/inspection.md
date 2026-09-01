@@ -12,9 +12,13 @@ gets a stable UID (e.g. `comp-42`) that interaction tools use to address it.
 |---|---|---|---|
 | `windowIndex` | number | no | Index of the window to snapshot (from `list_windows`); defaults to the active window |
 | `filter` | string | no | State filter to reduce snapshot size: `ALL` (default), `VISIBLE_ONLY`, `ENABLED_ONLY`, `FOCUSABLE_ONLY` |
+| `maxNodes` | number | no | Cap on the number of component nodes returned (default 2000). Prevents a huge UI from overflowing the client's context window |
+| `maxDepth` | number | no | Maximum tree depth to descend (default unlimited) |
 
 **Returns:** a tree of components with, per node: UID, component class, name,
-text/label, and key state flags.
+text/label, and key state flags. When the tree was cut short by `maxNodes` or
+`maxDepth`, the root carries `"truncated": true` — narrow the request (a
+`filter`, a smaller `maxDepth`, or `find_component`) to see the rest.
 
 **Notes:**
 - Take a fresh snapshot after any action that changes the UI; UIDs from stale
