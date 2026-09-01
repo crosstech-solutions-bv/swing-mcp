@@ -2,9 +2,23 @@
 
 <!-- mcp-name: io.github.crosstech-solutions-bv/swing-mcp -->
 
-An MCP (Model Context Protocol) server for interacting with Java Swing applications — inspired by [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp), but targeting any Swing UI instead of HTML pages.
+[![CI](https://github.com/crosstech-solutions-bv/swing-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/crosstech-solutions-bv/swing-mcp/actions/workflows/ci.yml)
+[![MCP Registry](https://img.shields.io/badge/MCP%20Registry-io.github.crosstech--solutions--bv%2Fswing--mcp-38a9dc)](https://registry.modelcontextprotocol.io)
+
+**Let AI assistants operate Java Swing desktop applications** — snapshot the UI, click, type, fill forms, read tables and trees, drive menus and dialogs. Inspired by [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp), but targeting any Swing UI instead of HTML pages.
+
+A huge amount of business software is Java desktop software — internal tools, ERP clients, point-of-sale, lab and logistics systems — with no API and no web UI. Swing MCP gives that software a safe, permissioned door into the AI era: assistants like Claude can see the interface and act in it, without changing the application itself.
 
 ![swing-mcp driving the demo app: snapshots, clicks, form filling, tables, trees, menus, and dialogs](docs/demo.gif)
+
+## Quick start (Claude Desktop)
+
+1. Make sure **JDK 21+** is on your `PATH`.
+2. Download `swing-mcp.mcpb` from the [latest release](https://github.com/crosstech-solutions-bv/swing-mcp/releases).
+3. Open the file — Claude Desktop installs it as an extension.
+4. Ask Claude to `launch_app` your Swing application (or `attach_to_app` a running one by PID) and take it from there.
+
+Using another MCP client? See [docs/installation.md](docs/installation.md) for IntelliJ IDEA, VS Code, Claude Code, Cursor and Windsurf.
 
 ## Modules
 
@@ -50,9 +64,9 @@ IntelliJ IDEA, VS Code, Claude Desktop, Claude Code, Cursor, Windsurf):
   "mcpServers": {
     "swing": {
       "command": "java",
-      "args": ["-jar", "/path/to/swing-mcp-server-1.0.0.jar"],
+      "args": ["-jar", "/path/to/swing-mcp-server-1.1.0.jar"],
       "env": {
-        "SWING_MCP_AGENT_JAR": "/path/to/swing-mcp-agent-1.0.0.jar"
+        "SWING_MCP_AGENT_JAR": "/path/to/swing-mcp-agent-1.1.0.jar"
       }
     }
   }
@@ -61,7 +75,7 @@ IntelliJ IDEA, VS Code, Claude Desktop, Claude Code, Cursor, Windsurf):
 
 Try it against the demo app:
 
-1. `launch_app` with `java -jar swing-mcp-demo/target/swing-mcp-demo-1.0.0.jar`
+1. `launch_app` with `java -jar swing-mcp-demo/target/swing-mcp-demo-1.1.0.jar`
 2. `take_snapshot` to discover component UIDs
 3. `click`, `fill`, `select_option`, … to interact
 
@@ -81,6 +95,12 @@ See [SECURITY.md](SECURITY.md) for the full security model and how to report vul
 ## Contributing
 
 Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) for the PR workflow. Release history lives in [CHANGELOG.md](CHANGELOG.md).
+
+## About
+
+Swing MCP is built and maintained by [CrossTech](https://crosstech.solutions), an AI-first software
+studio. We build MCP connectors that plug businesses' existing software — web, cloud, and
+legacy desktop — into AI assistants: [crosstech.solutions/mcp](https://crosstech.solutions/mcp).
 
 ## License
 
