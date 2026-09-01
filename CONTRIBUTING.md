@@ -67,7 +67,7 @@ Thanks for your interest in contributing! This document explains how to set up a
 
 ## Reporting bugs and requesting features
 
-Please use the [issue templates](https://github.com/TinusJ/swing-mcp/issues/new/choose). For security issues, do **not** open a public issue — see [SECURITY.md](SECURITY.md).
+Please use the [issue templates](https://github.com/crosstech-solutions-bv/swing-mcp/issues/new/choose). For security issues, do **not** open a public issue — see [SECURITY.md](SECURITY.md).
 
 ## License
 

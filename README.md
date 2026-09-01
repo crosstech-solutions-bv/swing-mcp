@@ -1,6 +1,6 @@
 # swing-mcp
 
-<!-- mcp-name: io.github.TinusJ/swing-mcp -->
+<!-- mcp-name: io.github.crosstech-solutions-bv/swing-mcp -->
 
 An MCP (Model Context Protocol) server for interacting with Java Swing applications — inspired by [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp), but targeting any Swing UI instead of HTML pages.
 
@@ -68,7 +68,7 @@ Try it against the demo app:
 ## MCP Registry
 
 This server is published to the [MCP Registry](https://registry.modelcontextprotocol.io) as
-`io.github.TinusJ/swing-mcp`, distributed as an MCPB bundle attached to GitHub releases.
+`io.github.crosstech-solutions-bv/swing-mcp`, distributed as an MCPB bundle attached to GitHub releases.
 See [docs/registry-publishing.md](docs/registry-publishing.md) for how publishing works.
 
 ## Security notes

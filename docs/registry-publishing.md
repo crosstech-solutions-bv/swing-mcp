@@ -1,7 +1,7 @@
 # Publishing to the MCP Registry
 
 This project is published to the [MCP Registry](https://registry.modelcontextprotocol.io) as
-**`io.github.TinusJ/swing-mcp`**, following the
+**`io.github.crosstech-solutions-bv/swing-mcp`**, following the
 [registry quickstart](https://github.com/modelcontextprotocol/registry/blob/main/docs/modelcontextprotocol-io/quickstart.mdx).
 
 Because this is a Java/Maven project (the registry does not host Maven Central packages), the
@@ -49,7 +49,7 @@ JARs — attached to a GitHub release.
 **Case-sensitive server name:** When publishing with GitHub authentication, the server `name`
 must start with `io.github.<username>/` and the username portion is **case-sensitive** — it must
 exactly match the GitHub login. For this repository the correct value is
-`io.github.TinusJ/swing-mcp` (capital `T` and `J`).
+`io.github.crosstech-solutions-bv/swing-mcp` (capital `T` and `J`).
 
 **Public repository required:** The registry validator fetches the artifact URL anonymously;
 a private repository returns 404 to unauthenticated requests, which causes a 400 error.
@@ -70,7 +70,7 @@ the official registry with some lag; one publish covers them.
 
 | File | Purpose |
 | --- | --- |
-| [`server.json`](../server.json) | MCP Registry server metadata. `name` uses the `io.github.TinusJ/` namespace required for GitHub-based authentication. |
+| [`server.json`](../server.json) | MCP Registry server metadata. `name` uses the `io.github.crosstech-solutions-bv/` namespace required for GitHub-based authentication. |
 | [`mcpb/manifest.json`](../mcpb/manifest.json) | MCPB bundle manifest. Tells MCP clients to run `java -jar server/swing-mcp-server.jar` with `SWING_MCP_AGENT_JAR` pointing at the bundled agent jar. |
 | [`.github/workflows/publish-mcp.yml`](../.github/workflows/publish-mcp.yml) | Release workflow that builds the bundle and publishes to the registry. |
 
@@ -92,7 +92,7 @@ The workflow then:
    artifact's SHA-256 (`fileSha256`), which MCP clients use to verify file integrity.
 5. Authenticates with the registry via GitHub OIDC (`mcp-publisher login github-oidc`) — no
    secrets needed, and OIDC from this repo grants publish rights to the
-   `io.github.TinusJ/*` namespace.
+   `io.github.crosstech-solutions-bv/*` namespace.
 6. Runs `mcp-publisher publish`.
 
 ## Manual publishing (Windows PowerShell)
@@ -119,7 +119,7 @@ Write the MCPB manifest (`mcpb-build\manifest.json`):
   "name": "swing-mcp",
   "version": "1.0.0",
   "description": "MCP server for inspecting and automating Java Swing applications.",
-  "author": { "name": "TinusJ" },
+  "author": { "name": "CrossTech Solutions" },
   "server": {
     "type": "binary",
     "mcp_config": {
@@ -141,7 +141,7 @@ $manifestJson = @'
   "name": "swing-mcp",
   "version": "1.0.0",
   "description": "MCP server for inspecting and automating Java Swing applications.",
-  "author": { "name": "TinusJ" },
+  "author": { "name": "CrossTech Solutions" },
   "server": {
     "type": "binary",
     "mcp_config": {
@@ -166,7 +166,7 @@ Rename-Item .\swing-mcp.zip swing-mcp.mcpb -Force
 ### Step 2 — Upload to the GitHub release and compute the SHA-256
 
 ```powershell
-gh release upload V1.0.0 .\swing-mcp.mcpb --repo TinusJ/swing-mcp --clobber
+gh release upload V1.0.0 .\swing-mcp.mcpb --repo crosstech-solutions-bv/swing-mcp --clobber
 $sha256 = (Get-FileHash -Algorithm SHA256 .\swing-mcp.mcpb).Hash.ToLowerInvariant()
 $sha256
 ```
@@ -193,17 +193,17 @@ in Step 2:
 ```json
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.TinusJ/swing-mcp",
+  "name": "io.github.crosstech-solutions-bv/swing-mcp",
   "description": "MCP server for inspecting and automating Java Swing applications.",
   "repository": {
-    "url": "https://github.com/TinusJ/swing-mcp",
+    "url": "https://github.com/crosstech-solutions-bv/swing-mcp",
     "source": "github"
   },
   "version": "1.0.0",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/TinusJ/swing-mcp/releases/download/V1.0.0/swing-mcp.mcpb",
+      "identifier": "https://github.com/crosstech-solutions-bv/swing-mcp/releases/download/V1.0.0/swing-mcp.mcpb",
       "fileSha256": "<lowercase sha-256 of swing-mcp.mcpb>",
       "transport": { "type": "stdio" }
     }
@@ -211,8 +211,8 @@ in Step 2:
 }
 ```
 
-> **Note:** The `name` field is **case-sensitive** — use `io.github.TinusJ/swing-mcp`, not
-> `io.github.tinusj/swing-mcp`. See [Troubleshooting](#troubleshooting) for the 403 error this
+> **Note:** The `name` field is **case-sensitive** — use `io.github.crosstech-solutions-bv/swing-mcp`, not
+> `solutions.crosstech/swing-mcp`. See [Troubleshooting](#troubleshooting) for the 403 error this
 > causes.
 
 Write it BOM-less (same technique as the manifest), interpolating the `$sha256` variable from
@@ -222,17 +222,17 @@ Step 2:
 $serverJson = @"
 {
   "`$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.TinusJ/swing-mcp",
+  "name": "io.github.crosstech-solutions-bv/swing-mcp",
   "description": "MCP server for inspecting and automating Java Swing applications.",
   "repository": {
-    "url": "https://github.com/TinusJ/swing-mcp",
+    "url": "https://github.com/crosstech-solutions-bv/swing-mcp",
     "source": "github"
   },
   "version": "1.0.0",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/TinusJ/swing-mcp/releases/download/V1.0.0/swing-mcp.mcpb",
+      "identifier": "https://github.com/crosstech-solutions-bv/swing-mcp/releases/download/V1.0.0/swing-mcp.mcpb",
       "fileSha256": "$sha256",
       "transport": { "type": "stdio" }
     }
@@ -265,7 +265,7 @@ git push
 ```
 
 Visit https://github.com/login/device, enter the code shown, and authorize while logged in as
-**TinusJ**.
+**CrossTech Solutions**.
 
 > Registry JWTs are short-lived. Log in immediately before publishing — see
 > [Troubleshooting](#troubleshooting) for the 401 error caused by an expired token.
@@ -279,7 +279,7 @@ Visit https://github.com/login/device, enter the code shown, and authorize while
 Expected output:
 
 ```
-✓ Server io.github.TinusJ/swing-mcp version 1.0.0
+✓ Server io.github.crosstech-solutions-bv/swing-mcp version 1.0.0
 ```
 
 ### Step 7 — Verify
@@ -287,13 +287,13 @@ Expected output:
 Query the registry API:
 
 ```powershell
-Invoke-RestMethod "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.TinusJ/swing-mcp" | ConvertTo-Json -Depth 10
+Invoke-RestMethod "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.crosstech-solutions-bv/swing-mcp" | ConvertTo-Json -Depth 10
 ```
 
 Confirm the artifact URL is publicly accessible:
 
 ```powershell
-Invoke-WebRequest -Uri "https://github.com/TinusJ/swing-mcp/releases/download/V1.0.0/swing-mcp.mcpb" -Method Head
+Invoke-WebRequest -Uri "https://github.com/crosstech-solutions-bv/swing-mcp/releases/download/V1.0.0/swing-mcp.mcpb" -Method Head
 ```
 
 ## Troubleshooting
@@ -329,17 +329,17 @@ $json = Get-Content .\server.json -Raw
 
 ```
 403 Forbidden: You do not have permission to publish this server.
-You have permission to publish: io.github.TinusJ/*.
-Attempting to publish: io.github.tinusj/swing-mcp
+You have permission to publish: io.github.crosstech-solutions-bv/*.
+Attempting to publish: solutions.crosstech/swing-mcp
 ```
 
-**Cause:** The `name` field in `server.json` used the all-lowercase form `io.github.tinusj/`, but
-the registry namespace is case-sensitive and must exactly match the GitHub login (`TinusJ`).
+**Cause:** The `name` field in `server.json` used the all-lowercase form `solutions.crosstech/`, but
+the registry namespace is case-sensitive and must exactly match the GitHub login (`CrossTech Solutions`).
 
-**Fix:** Correct the `name` field to `io.github.TinusJ/swing-mcp` and rewrite without a BOM:
+**Fix:** Correct the `name` field to `io.github.crosstech-solutions-bv/swing-mcp` and rewrite without a BOM:
 
 ```powershell
-$json = (Get-Content .\server.json -Raw) -replace '"io.github.tinusj/swing-mcp"', '"io.github.TinusJ/swing-mcp"'
+$json = (Get-Content .\server.json -Raw) -replace '"solutions.crosstech/swing-mcp"', '"io.github.crosstech-solutions-bv/swing-mcp"'
 [System.IO.File]::WriteAllText("$PWD\server.json", $json, [System.Text.UTF8Encoding]::new($false))
 ```
 
@@ -359,13 +359,13 @@ unauthenticated requests, and the registry validator fetches the artifact URL an
 **Fix:** Make the repository public:
 
 ```powershell
-gh repo edit TinusJ/swing-mcp --visibility public --accept-visibility-change-consequences
+gh repo edit crosstech-solutions-bv/swing-mcp --visibility public --accept-visibility-change-consequences
 ```
 
 Confirm the asset is accessible before republishing:
 
 ```powershell
-Invoke-WebRequest -Uri "https://github.com/TinusJ/swing-mcp/releases/download/V1.0.0/swing-mcp.mcpb" -Method Head
+Invoke-WebRequest -Uri "https://github.com/crosstech-solutions-bv/swing-mcp/releases/download/V1.0.0/swing-mcp.mcpb" -Method Head
 ```
 
 > **Note:** Making a repository public exposes all code, history, issues, and pull requests.
@@ -419,4 +419,4 @@ For each new release (replacing `1.0.0` / `V1.0.0` with the new version and tag)
 - [Registry repository & docs](https://github.com/modelcontextprotocol/registry) — quickstart,
   package types, authentication, and GitHub Actions guides under `docs/modelcontextprotocol-io/`
 - [MCPB tooling](https://github.com/anthropics/mcpb)
-- [This project's registry entry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.TinusJ/swing-mcp)
+- [This project's registry entry](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.crosstech-solutions-bv/swing-mcp)

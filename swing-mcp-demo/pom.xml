@@ -4,7 +4,7 @@
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
-        <groupId>io.github.tinusj</groupId>
+        <groupId>solutions.crosstech</groupId>
         <artifactId>swing-mcp</artifactId>
         <version>1.1.0</version>
     </parent>
@@ -29,7 +29,7 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>io.github.tinusj.swingmcp.demo.DemoFrame</mainClass>
+                            <mainClass>solutions.crosstech.swingmcp.demo.DemoFrame</mainClass>
                         </manifest>
                     </archive>
                 </configuration>

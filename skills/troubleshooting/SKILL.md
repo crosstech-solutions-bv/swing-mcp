@@ -92,6 +92,6 @@ If the issue is still unclear, run diagnostic commands to test the setup directl
 ### Step 6: Check GitHub for Existing Issues
 
 If the documentation does not cover the specific error, check if the `gh` (GitHub CLI) tool is available in the environment. If so, search the repository for similar issues:
-`gh issue list --repo TinusJ/swing-mcp --search "<error snippet>" --state all`
+`gh issue list --repo crosstech-solutions-bv/swing-mcp --search "<error snippet>" --state all`
 
-Alternatively, recommend that the user checks https://github.com/TinusJ/swing-mcp/issues for help.
+Alternatively, recommend that the user checks https://github.com/crosstech-solutions-bv/swing-mcp/issues for help.

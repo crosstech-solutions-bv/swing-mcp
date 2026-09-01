@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Project moved to the CrossTech organization**: repository transferred to
+  `github.com/crosstech-solutions-bv/swing-mcp` (old URLs redirect), Maven
+  `groupId` changed from `io.github.tinusj` to `solutions.crosstech`, Java
+  packages renamed `io.github.tinusj.swingmcp.*` → `solutions.crosstech.swingmcp.*`
+  (breaking for code importing these classes), and the MCP registry name is now
+  `io.github.crosstech-solutions-bv/swing-mcp`.
+
 ### Added
 - Demo GIF in the README showing snapshots, clicks, form filling, tables, trees, menus, and dialogs.
 
@@ -20,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehensive MCP Registry publishing guide under `docs/registry-publishing.md` (#6).
 
 ### Fixed
-- Case-sensitive server name `io.github.TinusJ/swing-mcp` in registry metadata (#6).
+- Case-sensitive server name `io.github.crosstech-solutions-bv/swing-mcp` in registry metadata (#6).
 - `server.json` name casing, description, and identifier URL (#7).
 
 ## [1.0.0] - 2026-07-05
@@ -40,6 +48,6 @@ Initial release.
 ### Changed
 - Logging migrated to `logback-spring.xml`; agent command handling updated for modal dialogs.
 
-[Unreleased]: https://github.com/TinusJ/swing-mcp/compare/V1.1.0...HEAD
-[1.1.0]: https://github.com/TinusJ/swing-mcp/compare/V1.0.0...V1.1.0
-[1.0.0]: https://github.com/TinusJ/swing-mcp/releases/tag/V1.0.0
+[Unreleased]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.1.0...HEAD
+[1.1.0]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.0.0...V1.1.0
+[1.0.0]: https://github.com/crosstech-solutions-bv/swing-mcp/releases/tag/V1.0.0

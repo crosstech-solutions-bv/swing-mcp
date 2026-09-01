@@ -35,7 +35,7 @@ The following protections are in place today:
 
 Please do **not** report security vulnerabilities through public GitHub issues.
 
-Instead, use [GitHub private vulnerability reporting](https://github.com/TinusJ/swing-mcp/security/advisories/new) for this repository. Include:
+Instead, use [GitHub private vulnerability reporting](https://github.com/crosstech-solutions-bv/swing-mcp/security/advisories/new) for this repository. Include:
 
 - A description of the issue and its impact
 - Steps to reproduce or a proof of concept

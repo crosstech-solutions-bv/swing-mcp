@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: https://github.com/TinusJ/swing-mcp/security/advisories/new
+    url: https://github.com/crosstech-solutions-bv/swing-mcp/security/advisories/new
     about: Please report security issues privately, not as public issues. See SECURITY.md.
   - name: Question / troubleshooting
-    url: https://github.com/TinusJ/swing-mcp/discussions
+    url: https://github.com/crosstech-solutions-bv/swing-mcp/discussions
     about: For usage questions, check docs/tools and the troubleshooting skill first, then ask here.

@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.TinusJ/swing-mcp",
+  "name": "io.github.crosstech-solutions-bv/swing-mcp",
   "title": "Swing MCP",
   "description": "MCP server for automating Java Swing applications.",
   "repository": {
-    "url": "https://github.com/TinusJ/swing-mcp",
+    "url": "https://github.com/crosstech-solutions-bv/swing-mcp",
     "source": "github"
   },
   "version": "1.1.0",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/TinusJ/swing-mcp/releases/download/V1.1.0/swing-mcp.mcpb",
+      "identifier": "https://github.com/crosstech-solutions-bv/swing-mcp/releases/download/V1.1.0/swing-mcp.mcpb",
       "fileSha256": "9bc26492e03829fdf0e7949b29aac7b7107f2a3f62d1c6122ba82c4eebd0437c",
       "transport": { "type": "stdio" }
     }
