@@ -1,5 +1,6 @@
 package solutions.crosstech.swingmcp.server.registry;
 
+import jakarta.annotation.PreDestroy;
 import solutions.crosstech.swingmcp.server.domain.NoActiveSessionException;
 import solutions.crosstech.swingmcp.server.session.AppSession;
 import java.io.IOException;
@@ -143,6 +144,19 @@ public class SessionRegistry {
             sessions.keySet().stream().findFirst().ifPresent(activeId::set);
         }
         return id;
+    }
+
+    /**
+     * Closes every session when the Spring context shuts down (including on a
+     * normal stdio MCP server restart), so applications launched via
+     * {@code launch_app} are terminated instead of orphaned.
+     */
+    @PreDestroy
+    public void shutdown() {
+        if (hasSession()) {
+            LOG.info("Server shutting down; closing {} active session(s)", sessions.size());
+        }
+        clear();
     }
 
     /**

@@ -76,6 +76,9 @@ public class ComponentScanner {
      * @param params optional params (may contain "windowIndex")
      * @return a {@link SnapshotNode} with full component tree
      */
+    /** Default cap on the number of component nodes returned by a single snapshot. */
+    private static final int DEFAULT_MAX_NODES = 2000;
+
     public SnapshotNode takeSnapshot(Map<String, Object> params) {
         Window win = getTargetWindow(params);
         if (win == null) {
@@ -83,14 +86,39 @@ public class ComponentScanner {
         }
         ComponentStateFilter filter = ComponentStateFilter.valueOf(
             getString(params, "filter", "ALL").toUpperCase());
-        List<ComponentDescriptor> children = scanComponent(win, filter);
+        int maxNodes = params.containsKey("maxNodes") ? getInt(params, "maxNodes", DEFAULT_MAX_NODES) : DEFAULT_MAX_NODES;
+        int maxDepth = params.containsKey("maxDepth") ? getInt(params, "maxDepth", Integer.MAX_VALUE) : Integer.MAX_VALUE;
+        ScanBudget budget = new ScanBudget(Math.max(1, maxNodes), maxDepth);
+        List<ComponentDescriptor> children = scanComponent(win, filter, budget, 0);
         Rectangle bounds = win.getBounds();
         return new SnapshotNode(
             getWindowTitle(win),
             win.getClass().getSimpleName(),
             bounds.x, bounds.y, bounds.width, bounds.height,
-            children
+            children,
+            budget.truncated ? Boolean.TRUE : null
         );
+    }
+
+    /** Mutable per-snapshot budget that caps node count and tree depth. */
+    private static final class ScanBudget {
+        private int remaining;
+        private final int maxDepth;
+        private boolean truncated;
+
+        ScanBudget(int maxNodes, int maxDepth) {
+            this.remaining = maxNodes;
+            this.maxDepth = maxDepth;
+        }
+
+        boolean take() {
+            if (remaining <= 0) {
+                truncated = true;
+                return false;
+            }
+            remaining--;
+            return true;
+        }
     }
 
     /**
@@ -271,23 +299,38 @@ public class ComponentScanner {
             if (index != null) {
                 list.setSelectedIndex(index);
             } else {
+                int match = -1;
+                List<String> available = new ArrayList<>();
                 for (int i = 0; i < list.getModel().getSize(); i++) {
-                    if (String.valueOf(list.getModel().getElementAt(i)).equals(text)) {
-                        list.setSelectedIndex(i);
-                        break;
+                    String item = String.valueOf(list.getModel().getElementAt(i));
+                    available.add(item);
+                    if (item.equals(text)) {
+                        match = i;
                     }
                 }
+                if (match < 0) {
+                    throw new IllegalArgumentException("No list item matches \"" + text
+                        + "\" on " + uid + ". Available items: " + available);
+                }
+                list.setSelectedIndex(match);
             }
         } else if (comp instanceof JTabbedPane tabs) {
             if (index != null) {
                 tabs.setSelectedIndex(index);
             } else {
+                int match = -1;
+                List<String> available = new ArrayList<>();
                 for (int i = 0; i < tabs.getTabCount(); i++) {
+                    available.add(tabs.getTitleAt(i));
                     if (tabs.getTitleAt(i).equals(text)) {
-                        tabs.setSelectedIndex(i);
-                        break;
+                        match = i;
                     }
                 }
+                if (match < 0) {
+                    throw new IllegalArgumentException("No tab titled \"" + text
+                        + "\" on " + uid + ". Available tabs: " + available);
+                }
+                tabs.setSelectedIndex(match);
             }
         } else {
             throw new IllegalArgumentException("Component " + uid + " does not support option selection: " + comp.getClass().getSimpleName());
@@ -461,13 +504,34 @@ public class ComponentScanner {
      */
     public String evaluateJava(Map<String, Object> params) {
         String code = getString(params, "code");
+        Object jshell = null;
         try {
             Class<?> jshellClass = Class.forName("jdk.jshell.JShell");
-            Object jshell = jshellClass.getMethod("create").invoke(null);
+            // Prefer in-process ("local") execution: it runs the snippet in this
+            // JVM (so it can see the app's state) and, crucially, does not fork a
+            // child JVM. Fall back to the default engine if the builder path fails.
+            try {
+                Object builder = jshellClass.getMethod("builder").invoke(null);
+                builder = builder.getClass().getMethod("executionEngine", String.class)
+                    .invoke(builder, "local");
+                jshell = builder.getClass().getMethod("build").invoke(builder);
+            } catch (Exception fallback) {
+                jshell = jshellClass.getMethod("create").invoke(null);
+            }
             Object events = jshellClass.getMethod("eval", String.class).invoke(jshell, code);
             return events.toString();
         } catch (Exception e) {
             throw new RuntimeException("JShell evaluation failed: " + e.getMessage(), e);
+        } finally {
+            // Always release the JShell instance; leaving it open leaks a JVM
+            // (default engine) or interpreter state (local engine) per call.
+            if (jshell != null) {
+                try {
+                    jshell.getClass().getMethod("close").invoke(jshell);
+                } catch (Exception ignore) {
+                    // best-effort cleanup
+                }
+            }
         }
     }
 
@@ -1016,16 +1080,25 @@ public class ComponentScanner {
         return result.get();
     }
 
-    private List<ComponentDescriptor> scanComponent(Component comp, ComponentStateFilter filter) {
+    private List<ComponentDescriptor> scanComponent(Component comp, ComponentStateFilter filter,
+                                                    ScanBudget budget, int depth) {
         List<ComponentDescriptor> result = new ArrayList<>();
         List<ComponentDescriptor> children = new ArrayList<>();
-        if (comp instanceof Container container) {
+        if (comp instanceof Container container && depth < budget.maxDepth) {
             for (Component child : container.getComponents()) {
-                children.addAll(scanComponent(child, filter));
+                if (budget.remaining <= 0) {
+                    budget.truncated = true;
+                    break;
+                }
+                children.addAll(scanComponent(child, filter, budget, depth + 1));
             }
         }
         if (!matchesFilter(comp, filter) && children.isEmpty()) {
             return result;
+        }
+        if (!budget.take()) {
+            // Node budget exhausted: keep any children already collected, drop this node's own descriptor.
+            return children.isEmpty() ? result : children;
         }
         String uid = assignUid(comp);
         String text = extractText(comp);
@@ -1143,7 +1216,23 @@ public class ComponentScanner {
         return info;
     }
 
+    /**
+     * Resolves the window a command targets. An explicit {@code windowIndex}
+     * (as returned by {@code list_windows}) always wins; otherwise the active
+     * window, then the first visible window. Previously the index was silently
+     * ignored, so e.g. {@code close_window(windowIndex=1)} could close the
+     * main frame — a destructive mistake against the automated application.
+     */
     private Window getTargetWindow(Map<String, Object> params) {
+        if (params != null && params.get("windowIndex") != null) {
+            int idx = getInt(params, "windowIndex", 0);
+            List<Window> visible = getVisibleWindows();
+            if (idx < 0 || idx >= visible.size()) {
+                throw new IllegalArgumentException("windowIndex " + idx + " is out of range; "
+                    + visible.size() + " visible window(s). Use list_windows for valid indices.");
+            }
+            return visible.get(idx);
+        }
         if (activeWindow != null && activeWindow.isVisible()) {
             return activeWindow;
         }

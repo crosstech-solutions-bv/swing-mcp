@@ -38,9 +38,25 @@ public class CommandHandler {
 
     private final JsonCodec codec;
     private final ComponentScanner scanner;
+    private final boolean evaluateEnabled;
+    private final String expectedToken;
 
+    /** Test/embedding constructor: no auth token, evaluate_java disabled. */
     public CommandHandler(JsonCodec codec) {
+        this(codec, false, null);
+    }
+
+    /**
+     * @param codec           JSON codec
+     * @param evaluateEnabled whether {@code evaluate_java} is permitted (gated here,
+     *                        not only server-side, so the toggle is actually enforced)
+     * @param expectedToken   per-session auth token; when non-null, every command
+     *                        must carry a matching token or it is rejected
+     */
+    public CommandHandler(JsonCodec codec, boolean evaluateEnabled, String expectedToken) {
         this.codec = codec;
+        this.evaluateEnabled = evaluateEnabled;
+        this.expectedToken = expectedToken;
         this.scanner = new ComponentScanner();
     }
 
@@ -53,11 +69,13 @@ public class CommandHandler {
     public String handle(String jsonLine) {
         try {
             CommandRequest request = codec.decodeRequest(jsonLine);
+            requireAuthorized(request);
             Object result = dispatch(request);
             CommandResponse response = new CommandResponse(request.requestId(), true, result, null);
             return codec.encode(response);
         } catch (Exception e) {
-            LOG.log(Level.WARNING, "Error handling command: " + jsonLine, e);
+            // Never log the raw line: it carries the session auth token.
+            LOG.log(Level.WARNING, "Error handling command: " + redactToken(jsonLine), e);
             try {
                 CommandRequest req = codec.decodeRequest(jsonLine);
                 CommandResponse error = new CommandResponse(req.requestId(), false, null, e.getMessage());
@@ -65,6 +83,66 @@ public class CommandHandler {
             } catch (Exception inner) {
                 return "{\"success\":false,\"error\":\"Failed to parse request\"}";
             }
+        }
+    }
+
+    /**
+     * Pre-dispatch gate used by {@link AgentServer}: returns an error response
+     * line if the command is not authorized, or {@code null} if it is. Lets the
+     * server drop the connection on the first bad token instead of letting an
+     * unauthenticated peer keep probing.
+     */
+    String rejectIfUnauthorized(String jsonLine) {
+        if (expectedToken == null) {
+            return null;
+        }
+        try {
+            CommandRequest request = codec.decodeRequest(jsonLine);
+            requireAuthorized(request);
+            return null;
+        } catch (SecurityException e) {
+            LOG.log(Level.WARNING, "Rejected unauthenticated command; closing connection");
+            try {
+                return codec.encode(new CommandResponse(safeRequestId(jsonLine), false, null, e.getMessage()));
+            } catch (Exception encode) {
+                return "{\"success\":false,\"error\":\"Unauthorized\"}";
+            }
+        } catch (Exception parse) {
+            return null; // let handle() produce the normal parse error
+        }
+    }
+
+    private String safeRequestId(String jsonLine) {
+        try {
+            return codec.decodeRequest(jsonLine).requestId();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** Masks the token value in a raw request line before it is logged. */
+    static String redactToken(String jsonLine) {
+        if (jsonLine == null) {
+            return null;
+        }
+        return jsonLine.replaceAll("(\"token\"\\s*:\\s*\")[^\"]*(\")", "$1<redacted>$2");
+    }
+
+    /**
+     * Rejects commands that do not carry the expected auth token (when one is
+     * configured), using a constant-time comparison. When no token is
+     * configured (tests/embedding) every command is allowed.
+     */
+    private void requireAuthorized(CommandRequest request) {
+        if (expectedToken == null) {
+            return;
+        }
+        String provided = request.token();
+        if (provided == null
+            || !java.security.MessageDigest.isEqual(
+                    expectedToken.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    provided.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
+            throw new SecurityException("Unauthorized: missing or invalid agent token");
         }
     }
 
@@ -101,7 +179,13 @@ public class CommandHandler {
             case DRAG -> scanner.drag(request.params());
             case SCROLL -> invokeOnEdt(() -> scanner.scroll(request.params()));
             case WAIT_FOR -> scanner.waitFor(request.params());
-            case EVALUATE_JAVA -> scanner.evaluateJava(request.params());
+            case EVALUATE_JAVA -> {
+                if (!evaluateEnabled) {
+                    throw new SecurityException("evaluate_java is disabled. "
+                        + "Enable it explicitly with swing.mcp.evaluate.enabled=true if you trust the client.");
+                }
+                yield scanner.evaluateJava(request.params());
+            }
         };
     }
 

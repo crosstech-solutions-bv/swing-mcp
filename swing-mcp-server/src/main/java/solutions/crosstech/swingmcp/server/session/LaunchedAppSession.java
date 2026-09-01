@@ -5,6 +5,7 @@ import solutions.crosstech.swingmcp.common.enums.CommandType;
 import solutions.crosstech.swingmcp.server.domain.SessionInfo;
 import java.io.IOException;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Session for a Swing application launched by the MCP server with the agent
@@ -37,13 +38,26 @@ public final class LaunchedAppSession implements AppSession {
         return process.isAlive() && connection.isOpen();
     }
 
-    /** Terminates the launched process after closing the agent connection. */
+    /**
+     * Terminates the launched process after closing the agent connection.
+     * Requests graceful termination first, then forcibly kills the process if
+     * it has not exited within a short grace period — so a frozen or modal
+     * Swing app is actually stopped rather than left orphaned.
+     */
     @Override
     public void close() throws IOException {
         try {
             connection.close();
         } finally {
             process.destroy();
+            try {
+                if (!process.waitFor(5, TimeUnit.SECONDS)) {
+                    process.destroyForcibly();
+                }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                process.destroyForcibly();
+            }
         }
     }
 }

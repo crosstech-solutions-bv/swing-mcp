@@ -2,13 +2,19 @@ package solutions.crosstech.swingmcp.agent;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.util.EnumSet;
+import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.logging.Level;
@@ -25,6 +31,7 @@ public class AgentServer {
 
     private final AgentConfig config;
     private final JsonCodec codec;
+    private final String token;
     private ServerSocket serverSocket;
     private int port;
     private volatile boolean running;
@@ -32,6 +39,9 @@ public class AgentServer {
     public AgentServer(AgentConfig config) {
         this.config = config;
         this.codec = new JsonCodec();
+        // Per-session shared secret handed to the paired MCP server via the
+        // (owner-only) response file. Any command without it is rejected.
+        this.token = UUID.randomUUID().toString();
     }
 
     /**
@@ -46,7 +56,7 @@ public class AgentServer {
         running = true;
 
         if (config.responseFile() != null) {
-            writePortToFile(config.responseFile(), port);
+            writePortToFile(config.responseFile(), port, token);
         }
 
         ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
@@ -73,11 +83,34 @@ public class AgentServer {
         throw new IOException("No free port in range [" + config.portMin() + ", " + config.portMax() + "]");
     }
 
-    private void writePortToFile(String responseFile, int chosenPort) {
-        try (FileWriter fw = new FileWriter(new File(responseFile))) {
-            fw.write(String.valueOf(chosenPort));
+    /**
+     * Writes the chosen port (line 1) and auth token (line 2) to the response
+     * file, restricting it to owner-only permissions where the filesystem
+     * supports POSIX permissions so the token cannot leak to other local users.
+     */
+    private void writePortToFile(String responseFile, int chosenPort, String authToken) {
+        Path path = Path.of(responseFile);
+        try {
+            String content = chosenPort + System.lineSeparator() + authToken + System.lineSeparator();
+            Files.writeString(path, content, StandardCharsets.UTF_8);
+            restrictToOwner(path);
         } catch (IOException e) {
             LOG.log(Level.WARNING, "Failed to write port to response file: " + responseFile, e);
+        }
+    }
+
+    private void restrictToOwner(Path path) {
+        try {
+            Set<PosixFilePermission> ownerOnly =
+                EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE);
+            Files.setPosixFilePermissions(path, ownerOnly);
+        } catch (UnsupportedOperationException | IOException e) {
+            // Non-POSIX filesystem (e.g. Windows): fall back to the File API.
+            File f = path.toFile();
+            f.setReadable(false, false);
+            f.setReadable(true, true);
+            f.setWritable(false, false);
+            f.setWritable(true, true);
         }
     }
 
@@ -107,13 +140,20 @@ public class AgentServer {
         ExecutorService commandExecutor = Executors.newVirtualThreadPerTaskExecutor();
         Object writeLock = new Object();
         try (
-            BufferedReader reader = new BufferedReader(new InputStreamReader(client.getInputStream()));
-            PrintWriter writer = new PrintWriter(client.getOutputStream(), true)
-        ) {
-            CommandHandler handler = new CommandHandler(codec);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
+            PrintWriter writer = new PrintWriter(new java.io.OutputStreamWriter(client.getOutputStream(), StandardCharsets.UTF_8), true)
+            CommandHandler handler = new CommandHandler(codec, config.evaluateEnabled(), token);
             String line;
             while ((line = reader.readLine()) != null) {
                 String command = line;
+                // Authenticate before dispatch; a bad token ends the connection.
+                String rejection = handler.rejectIfUnauthorized(command);
+                if (rejection != null) {
+                    synchronized (writeLock) {
+                        writer.println(rejection);
+                    }
+                    break;
+                }
                 commandExecutor.submit(() -> {
                     String response = handler.handle(command);
                     synchronized (writeLock) {

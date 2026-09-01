@@ -10,7 +10,8 @@ import java.util.Map;
 public record AgentConfig(
     int portMin,
     int portMax,
-    String responseFile
+    String responseFile,
+    boolean evaluateEnabled
 ) {
 
     private static final int DEFAULT_PORT_MIN = 40000;
@@ -35,6 +36,7 @@ public record AgentConfig(
         int portMin = Integer.parseInt(params.getOrDefault("portMin", String.valueOf(DEFAULT_PORT_MIN)));
         int portMax = Integer.parseInt(params.getOrDefault("portMax", String.valueOf(DEFAULT_PORT_MAX)));
         String responseFile = params.get("responseFile");
-        return new AgentConfig(portMin, portMax, responseFile);
+        boolean evaluateEnabled = Boolean.parseBoolean(params.getOrDefault("evaluateEnabled", "false"));
+        return new AgentConfig(portMin, portMax, responseFile, evaluateEnabled);
     }
 }

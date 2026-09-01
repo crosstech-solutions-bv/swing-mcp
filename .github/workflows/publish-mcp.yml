@@ -29,7 +29,8 @@ jobs:
 
       - name: Determine version from tag
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        # Accept either "v1.2.0" or "V1.2.0" tag casing.
+        run: echo "version=${GITHUB_REF_NAME#[vV]}" >> "$GITHUB_OUTPUT"
 
       - name: Build jars
         run: mvn -B -DskipTests package
