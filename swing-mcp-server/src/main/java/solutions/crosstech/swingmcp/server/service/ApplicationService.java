@@ -62,9 +62,9 @@ public class ApplicationService {
         Path agentJar = requireAgentJar();
         try {
             // Created with owner-only permissions (0600 on POSIX; user-scoped temp
-            // ACL on Windows). It is intentionally NOT deleted: the agent writes the
-            // port and auth token into this existing file, so the token is never
-            // exposed via a freshly-created world-readable file.
+            // ACL on Windows). Keep this file in place (don’t delete/recreate it)
+            // so the agent can write the port + auth token into a pre-secured file;
+            // it is deleted after a successful read.
             Path portFile = Files.createTempFile("swing-mcp-port", ".txt");
             portFile.toFile().deleteOnExit();
 
