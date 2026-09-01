@@ -5,7 +5,7 @@
 [![CI](https://github.com/crosstech-solutions-bv/swing-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/crosstech-solutions-bv/swing-mcp/actions/workflows/ci.yml)
 [![MCP Registry](https://img.shields.io/badge/MCP%20Registry-io.github.crosstech--solutions--bv%2Fswing--mcp-38a9dc)](https://registry.modelcontextprotocol.io)
 
-**Let AI assistants operate Java Swing desktop applications** — snapshot the UI, click, type, fill forms, read tables and trees, drive menus and dialogs. Inspired by [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp), but targeting any Swing UI instead of HTML pages.
+**Let AI assistants operate Java Swing desktop applications** — snapshot the UI, click, type, fill forms, read tables and trees, drive menus and dialogs. Inspired by [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp), but targeting any Swing UI instead of HTML pages. A
 
 A huge amount of business software is Java desktop software — internal tools, ERP clients, point-of-sale, lab and logistics systems — with no API and no web UI. Swing MCP gives that software a safe, permissioned door into the AI era: assistants like Claude can see the interface and act in it, without changing the application itself.
 
