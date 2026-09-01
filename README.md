@@ -64,9 +64,9 @@ IntelliJ IDEA, VS Code, Claude Desktop, Claude Code, Cursor, Windsurf):
   "mcpServers": {
     "swing": {
       "command": "java",
-      "args": ["-jar", "/path/to/swing-mcp-server-1.2.0.jar"],
+      "args": ["-jar", "/path/to/swing-mcp-server-1.2.1.jar"],
       "env": {
-        "SWING_MCP_AGENT_JAR": "/path/to/swing-mcp-agent-1.2.0.jar"
+        "SWING_MCP_AGENT_JAR": "/path/to/swing-mcp-agent-1.2.1.jar"
       }
     }
   }

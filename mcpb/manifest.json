@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "swing-mcp",
   "display_name": "Swing MCP",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "MCP server for automating Java Swing applications.",
   "long_description": "Swing MCP lets AI agents drive any Java Swing application. Launch a JVM with the bundled agent preloaded (or attach to a running JVM by PID), take accessibility-style snapshots of the component tree, and interact via tools such as click, fill, select_option, press_key, and take_screenshot. Requires a Java 21+ runtime on the PATH.",
   "author": {

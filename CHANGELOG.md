@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-01
+
+### Fixed
+- `publish` workflow compile break in `AgentServer.handleClient` (#13). This is the
+  version actually published to the MCP Registry and attached to the GitHub release;
+  the `V1.2.0` tag was never published. Functionally identical to 1.2.0 below.
+
 ## [1.2.0] - 2026-09-01
 
 ### Security
@@ -88,7 +95,8 @@ Initial release.
 ### Changed
 - Logging migrated to `logback-spring.xml`; agent command handling updated for modal dialogs.
 
-[Unreleased]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.2.0...HEAD
+[Unreleased]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.2.1...HEAD
+[1.2.1]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.2.0...V1.2.1
 [1.2.0]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.1.0...V1.2.0
 [1.1.0]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.0.0...V1.1.0
 [1.0.0]: https://github.com/crosstech-solutions-bv/swing-mcp/releases/tag/V1.0.0
