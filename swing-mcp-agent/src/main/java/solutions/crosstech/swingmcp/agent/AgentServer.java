@@ -139,10 +139,8 @@ public class AgentServer {
     private void handleClient(Socket client) {
         ExecutorService commandExecutor = Executors.newVirtualThreadPerTaskExecutor();
         Object writeLock = new Object();
-        try (
-            BufferedReader reader = new BufferedReader(new InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
-            PrintWriter writer = new PrintWriter(new java.io.OutputStreamWriter(client.getOutputStream(), StandardCharsets.UTF_8), true)
-        ) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
+             PrintWriter writer = new PrintWriter(new java.io.OutputStreamWriter(client.getOutputStream(), StandardCharsets.UTF_8), true)) {
             CommandHandler handler = new CommandHandler(codec, config.evaluateEnabled(), token);
             String line;
             while ((line = reader.readLine()) != null) {
