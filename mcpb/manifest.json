@@ -2,9 +2,9 @@
   "manifest_version": "0.3",
   "name": "swing-mcp",
   "display_name": "Swing MCP",
-  "version": "1.2.1",
-  "description": "MCP server for automating Java Swing applications.",
-  "long_description": "Swing MCP lets AI agents drive any Java Swing application. Launch a JVM with the bundled agent preloaded (or attach to a running JVM by PID), take accessibility-style snapshots of the component tree, and interact via tools such as click, fill, select_option, press_key, and take_screenshot. Requires a Java 21+ runtime on the PATH.",
+  "version": "1.2.2",
+  "description": "Let AI drive Java Swing desktop apps — see the UI, click, fill forms, read tables. No API needed.",
+  "long_description": "**Swing MCP gives AI assistants hands inside Java Swing desktop applications** — the ERP clients, point-of-sale screens, lab and logistics tools and internal apps that run a lot of businesses and have no API.\n\nOnce the bundled agent is loaded into the app's JVM (at launch, or by attaching to a running process by PID), Claude can:\n\n- **See the UI** as a structured component tree — every button, field, table, tree, menu and dialog with a stable id — instead of guessing from pixels.\n- **Act in it**: click, type, fill fields and spinners, pick combo-box options, select table cells and tree nodes, drive menus and right-click menus, drag, scroll, press keys.\n- **Read data out**: whole `JTable` contents, list and tree items, component details, the clipboard, and screenshots of a window or a single component.\n- **Handle the awkward parts**: modal dialogs are detected and answered instead of blocking the session; `wait_for` waits for UI conditions; several apps can be driven in parallel sessions.\n\n**Who it's for:** teams that maintain or test Swing software, and anyone who wants an assistant to operate a desktop app that was never built for automation. Typical uses: exploratory and regression UI testing, reproducing bugs, extracting data from screens, and automating repetitive clicks in legacy tools.\n\n**Requirements:** a Java 21+ runtime on your `PATH`. Works on macOS, Windows and Linux. The agent listens on loopback only, requires a per-session token, and `evaluate_java` (arbitrary code in the target JVM) is off unless you switch it on.\n\n**Get started:** ask Claude to `launch_app` with the path to your app's jar (or `attach_to_app` with a running PID), then `take_snapshot` and take it from there. Full tool reference, per-client setup and a demo: https://crosstech.solutions/swing-mcp\n\nOpen source (MIT) by CrossTech. Need this connected to your own application, or an MCP connector for other software your business runs? See the link above.",
   "author": {
     "name": "CrossTech Solutions",
     "url": "https://github.com/crosstech-solutions-bv"
@@ -13,9 +13,32 @@
     "type": "git",
     "url": "https://github.com/crosstech-solutions-bv/swing-mcp.git"
   },
-  "homepage": "https://github.com/crosstech-solutions-bv/swing-mcp",
+  "homepage": "https://crosstech.solutions/swing-mcp",
   "documentation": "https://github.com/crosstech-solutions-bv/swing-mcp/blob/main/docs/tool-reference.md",
   "support": "https://github.com/crosstech-solutions-bv/swing-mcp/issues",
+  "icon": "assets/icon.png",
+  "icons": [
+    { "src": "assets/icon.png", "size": "512x512" },
+    { "src": "assets/icon-256.png", "size": "256x256" }
+  ],
+  "screenshots": [
+    "assets/screenshot-forms.png",
+    "assets/screenshot-table.png",
+    "assets/screenshot-dialog.png"
+  ],
+  "license": "MIT",
+  "keywords": [
+    "swing",
+    "java",
+    "java-swing",
+    "desktop",
+    "ui-automation",
+    "gui-testing",
+    "legacy",
+    "test-automation",
+    "claude",
+    "mcp"
+  ],
   "server": {
     "type": "binary",
     "entry_point": "server/swing-mcp-server.jar",
@@ -71,8 +94,11 @@
     { "name": "wait_for", "description": "Wait for a UI condition" },
     { "name": "evaluate_java", "description": "Evaluate Java code in the target JVM (disabled by default)" }
   ],
-  "keywords": ["swing", "java", "ui-automation", "gui-testing", "desktop"],
   "compatibility": {
-    "platforms": ["darwin", "win32", "linux"]
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ]
   }
 }

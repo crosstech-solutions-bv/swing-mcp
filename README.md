@@ -5,7 +5,7 @@
 [![CI](https://github.com/crosstech-solutions-bv/swing-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/crosstech-solutions-bv/swing-mcp/actions/workflows/ci.yml)
 [![MCP Registry](https://img.shields.io/badge/MCP%20Registry-io.github.crosstech--solutions--bv%2Fswing--mcp-38a9dc)](https://registry.modelcontextprotocol.io)
 
-**Let AI assistants operate Java Swing desktop applications** — snapshot the UI, click, type, fill forms, read tables and trees, drive menus and dialogs. Inspired by [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp), but targeting any Swing UI instead of HTML pages. A
+**Let AI assistants operate Java Swing desktop applications** — snapshot the UI, click, type, fill forms, read tables and trees, drive menus and dialogs. Inspired by [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp), but targeting any Swing UI instead of HTML pages.
 
 A huge amount of business software is Java desktop software — internal tools, ERP clients, point-of-sale, lab and logistics systems — with no API and no web UI. Swing MCP gives that software a safe, permissioned door into the AI era: assistants like Claude can see the interface and act in it, without changing the application itself.
 
@@ -19,6 +19,8 @@ A huge amount of business software is Java desktop software — internal tools, 
 4. Ask Claude to `launch_app` your Swing application (or `attach_to_app` a running one by PID) and take it from there.
 
 Using another MCP client? See [docs/installation.md](docs/installation.md) for IntelliJ IDEA, VS Code, Claude Code, Cursor and Windsurf.
+
+**Need this connected to your own application** — or an MCP connector for other software your business runs? CrossTech builds them: [crosstech.solutions/swing-mcp](https://crosstech.solutions/swing-mcp).
 
 ## Modules
 
@@ -64,9 +66,9 @@ IntelliJ IDEA, VS Code, Claude Desktop, Claude Code, Cursor, Windsurf):
   "mcpServers": {
     "swing": {
       "command": "java",
-      "args": ["-jar", "/path/to/swing-mcp-server-1.2.1.jar"],
+      "args": ["-jar", "/path/to/swing-mcp-server-1.2.2.jar"],
       "env": {
-        "SWING_MCP_AGENT_JAR": "/path/to/swing-mcp-agent-1.2.1.jar"
+        "SWING_MCP_AGENT_JAR": "/path/to/swing-mcp-agent-1.2.2.jar"
       }
     }
   }

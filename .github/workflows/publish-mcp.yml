@@ -43,6 +43,7 @@ jobs:
           jq --arg v "$VERSION" '.version = $v' mcpb/manifest.json > bundle/manifest.json
           cp swing-mcp-server/target/swing-mcp-server-*.jar bundle/server/swing-mcp-server.jar
           cp swing-mcp-agent/target/swing-mcp-agent-*.jar bundle/server/swing-mcp-agent.jar
+          cp -r mcpb/assets bundle/assets   # icon + screenshots referenced by manifest.json
           (cd bundle && zip -r ../swing-mcp.mcpb .)
 
       - name: Upload .mcpb to release
