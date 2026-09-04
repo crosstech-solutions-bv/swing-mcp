@@ -2,18 +2,30 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.crosstech-solutions-bv/swing-mcp",
   "title": "Swing MCP",
-  "description": "MCP server for automating Java Swing applications.",
+  "description": "Let AI drive Java Swing desktop apps — see the UI, click, fill forms, read tables. No API needed.",
   "repository": {
     "url": "https://github.com/crosstech-solutions-bv/swing-mcp",
     "source": "github"
   },
-  "version": "1.2.1",
+  "websiteUrl": "https://crosstech.solutions/swing-mcp",
+  "icons": [
+    {
+      "src": "https://crosstech.solutions/img/swing-mcp-icon.png",
+      "mimeType": "image/png",
+      "sizes": [
+        "512x512"
+      ]
+    }
+  ],
+  "version": "1.2.2",
   "packages": [
     {
       "registryType": "mcpb",
-      "identifier": "https://github.com/crosstech-solutions-bv/swing-mcp/releases/download/V1.2.1/swing-mcp.mcpb",
+      "identifier": "https://github.com/crosstech-solutions-bv/swing-mcp/releases/download/V1.2.2/swing-mcp.mcpb",
       "fileSha256": "9bc26492e03829fdf0e7949b29aac7b7107f2a3f62d1c6122ba82c4eebd0437c",
-      "transport": { "type": "stdio" }
+      "transport": {
+        "type": "stdio"
+      }
     }
   ]
 }

@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-09-04
+
+### Changed
+- Registry/extension listing: benefit-first description, `websiteUrl` and icon in `server.json`; MCPB manifest now ships an icon, three screenshots, a markdown long description, license and richer keywords (`mcpb/assets/`, copied into the bundle by the publish workflow).
+
 ## [1.2.1] - 2026-09-01
 
 ### Fixed
@@ -95,7 +100,8 @@ Initial release.
 ### Changed
 - Logging migrated to `logback-spring.xml`; agent command handling updated for modal dialogs.
 
-[Unreleased]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.2.1...HEAD
+[Unreleased]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.2.2...HEAD
+[1.2.2]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.2.1...V1.2.2
 [1.2.1]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.2.0...V1.2.1
 [1.2.0]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.1.0...V1.2.0
 [1.1.0]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.0.0...V1.1.0
