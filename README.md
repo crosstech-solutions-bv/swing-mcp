@@ -18,7 +18,7 @@ A huge amount of business software is Java desktop software — internal tools, 
 3. Open the file — Claude Desktop installs it as an extension.
 4. Ask Claude to `launch_app` your Swing application (or `attach_to_app` a running one by PID) and take it from there.
 
-Using another MCP client? See [docs/installation.md](docs/installation.md) for IntelliJ IDEA, VS Code, Claude Code, Cursor and Windsurf.
+Using another MCP client? One guide and a one-minute video per client — Claude Code, VS Code + Copilot, Cursor, Devin Desktop (Windsurf), IntelliJ IDEA, Codex CLI, Gemini CLI: [docs/installation.md](docs/installation.md) · [videos](https://crosstech.solutions/swing-mcp#clients). Prefer the long version? [3-minute install-and-first-use video](https://crosstech.solutions/swing-mcp#video).
 
 **Need this connected to your own application** — or an MCP connector for other software your business runs? CrossTech builds them: [crosstech.solutions/swing-mcp](https://crosstech.solutions/swing-mcp).
 
@@ -57,18 +57,19 @@ GUI integration tests are skipped in headless environments; CI runs them under `
 
 ## Running
 
-Build everything, then register the server with your MCP client (see
+Build everything (or unzip the released `swing-mcp.mcpb` — the two jars are in
+its `server/` folder), then register the server with your MCP client (see
 [docs/installation.md](docs/installation.md) for per-client instructions —
-IntelliJ IDEA, VS Code, Claude Desktop, Claude Code, Cursor, Windsurf):
+Claude Desktop, Claude Code, VS Code, Cursor, Devin Desktop, IntelliJ IDEA, Codex CLI, Gemini CLI):
 
 ```json
 {
   "mcpServers": {
     "swing": {
       "command": "java",
-      "args": ["-jar", "/path/to/swing-mcp-server-1.2.2.jar"],
+      "args": ["-jar", "/path/to/swing-mcp-server.jar"],
       "env": {
-        "SWING_MCP_AGENT_JAR": "/path/to/swing-mcp-agent-1.2.2.jar"
+        "SWING_MCP_AGENT_JAR": "/path/to/swing-mcp-agent.jar"
       }
     }
   }
@@ -77,7 +78,7 @@ IntelliJ IDEA, VS Code, Claude Desktop, Claude Code, Cursor, Windsurf):
 
 Try it against the demo app:
 
-1. `launch_app` with `java -jar swing-mcp-demo/target/swing-mcp-demo-1.2.0.jar`
+1. `launch_app` with `java -jar swing-mcp-demo/target/swing-mcp-demo-1.2.2.jar`
 2. `take_snapshot` to discover component UIDs
 3. `click`, `fill`, `select_option`, … to interact
 
