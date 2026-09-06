@@ -18,7 +18,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New per-client guides in `docs/install/` (Claude Desktop, Claude Code, VS Code +
   GitHub Copilot, Cursor, Devin Desktop/Windsurf, IntelliJ IDEA, OpenAI Codex CLI,
   Gemini CLI), each paired with a one-minute video on crosstech.solutions/swing-mcp.
-
 ## [1.2.2] - 2026-09-04
 
 ### Changed
