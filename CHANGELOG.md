@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- The MCP `serverInfo.version` reported to clients was hardcoded to `1.1.0`; it now
+  follows the Maven project version (`application.yml` is filtered at build time).
+
+### Changed
+- `docs/installation.md`: unversioned jar paths, the unzip-the-`.mcpb` route for
+  clients that need the jars, `mcpServers` config shape for IntelliJ IDEA (JetBrains
+  AI Assistant), Claude Desktop extension install first, link to the install video.
+- New per-client guides in `docs/install/` (Claude Desktop, Claude Code, VS Code +
+  GitHub Copilot, Cursor, Devin Desktop/Windsurf, IntelliJ IDEA, OpenAI Codex CLI,
+  Gemini CLI), each paired with a one-minute video on crosstech.solutions/swing-mcp.
 ## [1.2.2] - 2026-09-04
 
 ### Changed

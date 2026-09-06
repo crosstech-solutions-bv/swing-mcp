@@ -6,7 +6,7 @@ spring:
     mcp:
       server:
         name: swing-mcp-server
-        version: 1.1.0
+        version: "@project.version@"
         stdio: true
 
 swing:
