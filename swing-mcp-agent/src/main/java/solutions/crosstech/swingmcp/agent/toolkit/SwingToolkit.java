@@ -138,9 +138,22 @@ public class SwingToolkit extends AbstractUiToolkit {
         return onUi(() -> scanner.fill(p));
     }
 
+    /**
+     * Event-based typing may open a modal dialog (e.g. ENTER on a form), so it is
+     * fire-and-poll, with time for one EDT turn per character. Robot typing stays
+     * synchronous: it must not overlap with whatever the client does next.
+     */
     @Override
-    public String typeText(Map<String, Object> p) throws Exception {
-        return scanner.typeText(p);
+    public Object typeText(Map<String, Object> p) throws Exception {
+        if (robot(p)) {
+            return scanner.typeText(p);
+        }
+        int length = p.get("text") == null ? 0 : String.valueOf(p.get("text")).length();
+        return actionOffUi(() -> scanner.typeText(p), Math.min(UI_TIMEOUT_MS, ACTION_WAIT_MS + 20L * length));
+    }
+
+    private static boolean robot(Map<String, Object> p) {
+        return Boolean.parseBoolean(String.valueOf(p.get("robot")));
     }
 
     @Override
@@ -183,9 +196,13 @@ public class SwingToolkit extends AbstractUiToolkit {
         return action(() -> scanner.handleDialog(p));
     }
 
+    /** A key may open a modal dialog (CTRL+O, ENTER), so event-based presses are fire-and-poll. */
     @Override
-    public String pressKey(Map<String, Object> p) throws Exception {
-        return scanner.pressKey(p);
+    public Object pressKey(Map<String, Object> p) throws Exception {
+        if (robot(p)) {
+            return scanner.pressKey(p);
+        }
+        return actionOffUi(() -> scanner.pressKey(p));
     }
 
     @Override

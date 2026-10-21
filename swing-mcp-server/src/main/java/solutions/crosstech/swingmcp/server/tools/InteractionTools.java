@@ -48,11 +48,13 @@ public class InteractionTools {
         annotations = @McpTool.McpAnnotations(title = "Type text", readOnlyHint = false, destructiveHint = false, idempotentHint = false, openWorldHint = false),
         description = """
         Type text character-by-character into the focused component using key events \
-        (unlike fill, which sets the value directly). Triggers per-keystroke listeners.""")
+        (unlike fill, which sets the value directly). Triggers per-keystroke listeners. \
+        The events go to the application itself, so it works while the app is in the background.""")
     public String typeText(
             @McpToolParam(description = "Text to type") String text,
-            @McpToolParam(description = "Optional component UID to focus before typing", required = false) String uid) {
-        return ToolJson.toJson(interactionService.typeText(text, uid));
+            @McpToolParam(description = "Optional component UID to focus before typing", required = false) String uid,
+            @McpToolParam(description = "Swing: send OS-level keystrokes via Robot; refused unless the window can be brought to the front", required = false) Boolean robot) {
+        return ToolJson.toJson(interactionService.typeText(text, uid, robot));
     }
 
     @McpTool(name = "select_context_menu_item",
@@ -120,10 +122,15 @@ public class InteractionTools {
 
     @McpTool(name = "press_key",
         annotations = @McpTool.McpAnnotations(title = "Press key", readOnlyHint = false, destructiveHint = false, idempotentHint = false, openWorldHint = false),
-        description = "Press a key or key chord in the target application, e.g. \"ENTER\" or \"CTRL+S\".")
+        description = """
+        Press a key or key chord in the target application, e.g. "ENTER", "CTRL+S", "F5". \
+        Sent to the component with keyboard focus in the application (or uid), even while the app \
+        is in the background; the result names the component that received it.""")
     public String pressKey(
-            @McpToolParam(description = "Key or chord such as ENTER, TAB, CTRL+S") String keys) {
-        return ToolJson.toJson(interactionService.pressKey(keys));
+            @McpToolParam(description = "Key or chord such as ENTER, TAB, ESCAPE, F5, HOME, PAGE_DOWN, CTRL+S, SHORTCUT+A") String keys,
+            @McpToolParam(description = "Optional component UID to focus and send the keys to", required = false) String uid,
+            @McpToolParam(description = "Swing: send OS-level keystrokes via Robot; refused unless the window can be brought to the front", required = false) Boolean robot) {
+        return ToolJson.toJson(interactionService.pressKey(keys, uid, robot));
     }
 
     @McpTool(name = "drag",

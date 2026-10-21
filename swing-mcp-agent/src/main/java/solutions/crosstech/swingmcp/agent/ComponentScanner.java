@@ -526,22 +526,213 @@ public class ComponentScanner {
     }
 
     /**
-     * Sends a key press (e.g. "CTRL+S", "ENTER") using Robot.
+     * Presses a key or chord (e.g. "CTRL+S", "ENTER"). Called off the EDT.
+     *
+     * <p>By default the key events are dispatched straight to the component that
+     * has keyboard focus in the application (or to {@code uid}), not through the
+     * operating system: they reach the application while it is in the background
+     * and can never end up in another application. {@code robot=true} sends
+     * OS-level keystrokes with {@code java.awt.Robot} instead, and only once the
+     * target window is in front.</p>
      */
-    public String pressKey(Map<String, Object> params) throws AWTException {
+    public String pressKey(Map<String, Object> params) throws Exception {
         String keys = getString(params, "keys");
+        List<Key> chord = parseKeyChord(keys);
+        if (getBoolean(params, "robot", false)) {
+            ensureForeground(invokeAndWaitQuietly(() -> windowOf(keyTarget(params))));
+            Robot robot = new Robot();
+            for (Key key : chord) {
+                robot.keyPress(key.code());
+            }
+            for (int i = chord.size() - 1; i >= 0; i--) {
+                robot.keyRelease(chord.get(i).code());
+            }
+            return "Key pressed: " + keys;
+        }
+        Component target = invokeAndWaitQuietly(() -> keyTarget(params));
+        invokeAndWaitQuietly(() -> {
+            dispatchChord(target, chord);
+            return null;
+        });
+        return "Key pressed: " + keys + " (sent to " + describeKeyTarget(target) + ")";
+    }
+
+    /** A key of a chord: its key code and the character it types, if any. */
+    private record Key(int code, char ch) {
+        boolean isModifier() {
+            return modifierMask(code) != 0;
+        }
+    }
+
+    private static int modifierMask(int keyCode) {
+        return switch (keyCode) {
+            case KeyEvent.VK_SHIFT -> InputEvent.SHIFT_DOWN_MASK;
+            case KeyEvent.VK_CONTROL -> InputEvent.CTRL_DOWN_MASK;
+            case KeyEvent.VK_ALT -> InputEvent.ALT_DOWN_MASK;
+            case KeyEvent.VK_META -> InputEvent.META_DOWN_MASK;
+            case KeyEvent.VK_ALT_GRAPH -> InputEvent.ALT_GRAPH_DOWN_MASK;
+            default -> 0;
+        };
+    }
+
+    /**
+     * Dispatches a chord the way the keyboard produces it: modifiers pressed in
+     * order, then each key pressed, typed (when it produces a character and no
+     * Ctrl/Alt/Meta is held) and released, then the modifiers released. Must
+     * run on the EDT.
+     */
+    private void dispatchChord(Component target, List<Key> chord) {
+        int mask = 0;
+        long now = System.currentTimeMillis();
+        List<Key> modifiers = chord.stream().filter(Key::isModifier).toList();
+        for (Key mod : modifiers) {
+            mask |= modifierMask(mod.code());
+            dispatchKey(target, KeyEvent.KEY_PRESSED, now, mask, mod.code(), KeyEvent.CHAR_UNDEFINED);
+        }
+        boolean shift = (mask & InputEvent.SHIFT_DOWN_MASK) != 0;
+        boolean command = (mask & (InputEvent.CTRL_DOWN_MASK | InputEvent.ALT_DOWN_MASK
+            | InputEvent.META_DOWN_MASK)) != 0;
+        for (Key key : chord) {
+            if (key.isModifier()) {
+                continue;
+            }
+            char ch = key.ch() == KeyEvent.CHAR_UNDEFINED || !Character.isLetter(key.ch()) ? key.ch()
+                : shift ? Character.toUpperCase(key.ch()) : Character.toLowerCase(key.ch());
+            dispatchKey(target, KeyEvent.KEY_PRESSED, now, mask, key.code(), ch);
+            if (ch != KeyEvent.CHAR_UNDEFINED && !command) {
+                dispatchKey(target, KeyEvent.KEY_TYPED, now, mask, KeyEvent.VK_UNDEFINED, ch);
+            }
+            dispatchKey(target, KeyEvent.KEY_RELEASED, now, mask, key.code(), ch);
+        }
+        for (int i = modifiers.size() - 1; i >= 0; i--) {
+            mask &= ~modifierMask(modifiers.get(i).code());
+            dispatchKey(target, KeyEvent.KEY_RELEASED, now, mask, modifiers.get(i).code(), KeyEvent.CHAR_UNDEFINED);
+        }
+    }
+
+    /**
+     * Dispatches one key event directly to {@code target}. Not posted to the event
+     * queue, so it is neither retargeted to the (possibly absent) system focus owner
+     * nor held back by pending focus changes; the focus manager still applies focus
+     * traversal keys, key bindings and accelerators.
+     */
+    private static void dispatchKey(Component target, int id, long when, int modifiers, int code, char ch) {
+        target.dispatchEvent(new KeyEvent(target, id, when, modifiers, code, ch));
+    }
+
+    /**
+     * The component key events go to: {@code uid} (which is given focus within its
+     * window), else the application's focus owner, else the most recent focus owner
+     * of the open modal dialog or the target window. Must run on the EDT.
+     */
+    private Component keyTarget(Map<String, Object> params) {
+        String uid = (String) params.get("uid");
+        Component target;
+        if (uid != null && !uid.isBlank()) {
+            target = resolveUid(uid);
+            if (!target.hasFocus()) {
+                target.requestFocusInWindow();
+            }
+        } else {
+            target = java.awt.KeyboardFocusManager.getCurrentKeyboardFocusManager().getFocusOwner();
+            if (target == null) {
+                // The application is not active (normal while an agent drives it from an
+                // editor): use what would get focus once its window is activated.
+                Window win = keyWindow(params);
+                target = win.getMostRecentFocusOwner();
+                if (target == null) {
+                    target = win instanceof javax.swing.RootPaneContainer rpc ? rpc.getRootPane() : win;
+                }
+            }
+        }
+        if (!target.isShowing()) {
+            throw new IllegalStateException("The component that would receive the keys ("
+                + describeKeyTarget(target) + ") is not on screen");
+        }
+        markFocusedTextComponent(target);
+        return target;
+    }
+
+    /**
+     * Some text actions act on "the focused text component" rather than the event
+     * source — JTextField's ENTER action fires only for it. Swing records that
+     * component in a focus listener every JTextComponent installs; in a window
+     * without keyboard focus no field ever gains focus, so ENTER would do nothing.
+     * Notifying just that listener records the key target, as clicking into the
+     * field would, without touching real focus or other focus listeners.
+     */
+    private static void markFocusedTextComponent(Component target) {
+        if (!(target instanceof JTextComponent text) || text.hasFocus()) {
+            return;
+        }
+        for (java.awt.event.FocusListener listener : text.getFocusListeners()) {
+            if (listener.getClass().getName().equals("javax.swing.text.JTextComponent$MutableCaretEvent")) {
+                listener.focusGained(new java.awt.event.FocusEvent(text, java.awt.event.FocusEvent.FOCUS_GAINED));
+            }
+        }
+    }
+
+    /** An open modal dialog takes the keyboard, as it would for a user. */
+    private Window keyWindow(Map<String, Object> params) {
+        if (params.get("windowIndex") == null) {
+            List<Window> visible = getVisibleWindows();
+            for (int i = visible.size() - 1; i >= 0; i--) {
+                if (visible.get(i) instanceof Dialog d && d.isModal()) {
+                    return d;
+                }
+            }
+        }
+        Window win = getTargetWindow(params);
+        if (win == null) {
+            throw new IllegalStateException("No window to send keys to");
+        }
+        return win;
+    }
+
+    private static Window windowOf(Component c) {
+        return c instanceof Window w ? w : SwingUtilities.getWindowAncestor(c);
+    }
+
+    private String describeKeyTarget(Component c) {
+        String type = c.getClass().getSimpleName().isEmpty() ? c.getClass().getName() : c.getClass().getSimpleName();
+        return assignUid(c) + " " + type + (c.getName() == null ? "" : " '" + c.getName() + "'");
+    }
+
+    /**
+     * Brings {@code win} to the front for OS-level input, or fails: Robot events go
+     * to whatever application is in front, so sending them to a background window
+     * would type into another application. Called off the EDT.
+     */
+    private void ensureForeground(Window win) throws Exception {
         if (GraphicsEnvironment.isHeadless()) {
-            throw new IllegalStateException("Cannot press keys in headless environment");
+            throw new IllegalStateException("robot input needs a display");
         }
-        Robot robot = new Robot();
-        List<Integer> keyCodes = parseKeyChord(keys);
-        for (int code : keyCodes) {
-            robot.keyPress(code);
+        if (win == null) {
+            throw new IllegalStateException("No window to send keys to");
         }
-        for (int i = keyCodes.size() - 1; i >= 0; i--) {
-            robot.keyRelease(keyCodes.get(i));
+        if (Boolean.TRUE.equals(invokeAndWaitQuietly(win::isFocused))) {
+            return;
         }
-        return "Key pressed: " + keys;
+        invokeAndWaitQuietly(() -> {
+            // Window.toFront() does not activate a background application on macOS.
+            if (java.awt.Desktop.isDesktopSupported() && java.awt.Desktop.getDesktop()
+                    .isSupported(java.awt.Desktop.Action.APP_REQUEST_FOREGROUND)) {
+                java.awt.Desktop.getDesktop().requestForeground(true);
+            }
+            win.toFront();
+            win.requestFocus();
+            return null;
+        });
+        long deadline = System.currentTimeMillis() + 1500;
+        while (System.currentTimeMillis() < deadline) {
+            if (Boolean.TRUE.equals(invokeAndWaitQuietly(win::isFocused))) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+        throw new IllegalStateException("The application window could not be brought to the front, so "
+            + "OS-level keystrokes would go to another application. Omit robot to send the keys "
+            + "to the application directly.");
     }
 
     /**
@@ -813,23 +1004,51 @@ public class ComponentScanner {
 
     /**
      * Types text character-by-character into the focused component using key events.
-     * Params: text (required), uid (optional - focus this component first).
+     * Params: text (required), uid (optional - focus this component first), robot
+     * (optional - OS-level keystrokes, see {@link #pressKey}). Called off the EDT.
+     *
+     * <p>Each character is dispatched as pressed/typed/released in its own EDT
+     * turn, so work the application queues from its key listeners runs between
+     * keystrokes, as it does for a typist. Unlike Robot, any character can be
+     * typed, whatever the keyboard layout.</p>
      */
     public String typeText(Map<String, Object> params) throws Exception {
         String text = getString(params, "text");
-        String uid = (String) params.get("uid");
-        if (GraphicsEnvironment.isHeadless()) {
-            throw new IllegalStateException("Cannot type text in headless environment");
+        if (getBoolean(params, "robot", false)) {
+            ensureForeground(invokeAndWaitQuietly(() -> windowOf(keyTarget(params))));
+            Robot robot = new Robot();
+            robot.setAutoDelay(20);
+            for (char ch : text.toCharArray()) {
+                typeChar(robot, ch);
+            }
+            return "Typed " + text.length() + " characters";
         }
-        if (uid != null && !uid.isBlank()) {
-            invokeAndWaitQuietly(() -> focus(Map.of("uid", uid)));
-        }
-        Robot robot = new Robot();
-        robot.setAutoDelay(20);
+        Component target = invokeAndWaitQuietly(() -> keyTarget(params));
         for (char ch : text.toCharArray()) {
-            typeChar(robot, ch);
+            invokeAndWaitQuietly(() -> {
+                typeCharEvents(target, ch);
+                return null;
+            });
         }
-        return "Typed " + text.length() + " characters";
+        return "Typed " + text.length() + " characters into " + describeKeyTarget(target);
+    }
+
+    private static void typeCharEvents(Component target, char ch) {
+        // As in typeChar: the shift state assumes a US layout, but the character
+        // itself is delivered exactly, so the inserted text is right on any layout.
+        boolean shift = Character.isUpperCase(ch) || "~!@#$%^&*()_+{}|:\"<>?".indexOf(ch) >= 0;
+        int code = KeyEvent.getExtendedKeyCodeForChar(ch);
+        int mask = shift ? InputEvent.SHIFT_DOWN_MASK : 0;
+        long now = System.currentTimeMillis();
+        if (shift) {
+            dispatchKey(target, KeyEvent.KEY_PRESSED, now, mask, KeyEvent.VK_SHIFT, KeyEvent.CHAR_UNDEFINED);
+        }
+        dispatchKey(target, KeyEvent.KEY_PRESSED, now, mask, code, ch);
+        dispatchKey(target, KeyEvent.KEY_TYPED, now, mask, KeyEvent.VK_UNDEFINED, ch);
+        dispatchKey(target, KeyEvent.KEY_RELEASED, now, mask, code, ch);
+        if (shift) {
+            dispatchKey(target, KeyEvent.KEY_RELEASED, now, 0, KeyEvent.VK_SHIFT, KeyEvent.CHAR_UNDEFINED);
+        }
     }
 
     private void typeChar(Robot robot, char ch) {
@@ -1602,32 +1821,64 @@ public class ComponentScanner {
         };
     }
 
-    private List<Integer> parseKeyChord(String keys) {
-        List<Integer> codes = new ArrayList<>();
-        for (String part : keys.split("\\+")) {
-            codes.add(switch (part.trim().toUpperCase()) {
-                case "CTRL" -> KeyEvent.VK_CONTROL;
-                case "ALT" -> KeyEvent.VK_ALT;
-                case "SHIFT" -> KeyEvent.VK_SHIFT;
-                case "META" -> KeyEvent.VK_META;
-                case "ENTER" -> KeyEvent.VK_ENTER;
-                case "ESCAPE", "ESC" -> KeyEvent.VK_ESCAPE;
-                case "TAB" -> KeyEvent.VK_TAB;
-                case "SPACE" -> KeyEvent.VK_SPACE;
-                case "BACKSPACE" -> KeyEvent.VK_BACK_SPACE;
-                case "DELETE", "DEL" -> KeyEvent.VK_DELETE;
-                case "UP" -> KeyEvent.VK_UP;
-                case "DOWN" -> KeyEvent.VK_DOWN;
-                case "LEFT" -> KeyEvent.VK_LEFT;
-                case "RIGHT" -> KeyEvent.VK_RIGHT;
+    /**
+     * Parses a chord such as {@code "CTRL+SHIFT+S"}, {@code "ENTER"}, {@code "F5"}
+     * or {@code "PAGE_DOWN"}: modifier and key names, any {@code KeyEvent.VK_*}
+     * name without the prefix, or a single character.
+     */
+    static List<Key> parseKeyChord(String keys) {
+        List<Key> chord = new ArrayList<>();
+        for (String raw : keys.split("\\+")) {
+            String part = raw.trim();
+            String name = part.toUpperCase();
+            chord.add(switch (name) {
+                case "CTRL", "CONTROL" -> new Key(KeyEvent.VK_CONTROL, KeyEvent.CHAR_UNDEFINED);
+                case "ALT", "OPTION" -> new Key(KeyEvent.VK_ALT, KeyEvent.CHAR_UNDEFINED);
+                case "SHIFT" -> new Key(KeyEvent.VK_SHIFT, KeyEvent.CHAR_UNDEFINED);
+                case "META", "CMD", "COMMAND" -> new Key(KeyEvent.VK_META, KeyEvent.CHAR_UNDEFINED);
+                case "SHORTCUT" -> new Key(shortcutKey(), KeyEvent.CHAR_UNDEFINED);
+                case "ENTER", "RETURN" -> new Key(KeyEvent.VK_ENTER, '\n');
+                case "ESCAPE", "ESC" -> new Key(KeyEvent.VK_ESCAPE, (char) 27);
+                case "TAB" -> new Key(KeyEvent.VK_TAB, '\t');
+                case "SPACE" -> new Key(KeyEvent.VK_SPACE, ' ');
+                case "BACKSPACE" -> new Key(KeyEvent.VK_BACK_SPACE, '\b');
+                case "DELETE", "DEL" -> new Key(KeyEvent.VK_DELETE, (char) 127);
+                case "PGUP" -> new Key(KeyEvent.VK_PAGE_UP, KeyEvent.CHAR_UNDEFINED);
+                case "PGDN" -> new Key(KeyEvent.VK_PAGE_DOWN, KeyEvent.CHAR_UNDEFINED);
                 default -> {
-                    String t = part.trim().toUpperCase();
-                    int code = KeyEvent.getExtendedKeyCodeForChar(t.charAt(0));
-                    yield code != KeyEvent.VK_UNDEFINED ? code : (int) t.charAt(0);
+                    if (part.length() == 1) {
+                        char ch = part.charAt(0);
+                        int code = KeyEvent.getExtendedKeyCodeForChar(ch);
+                        if (code == KeyEvent.VK_UNDEFINED) {
+                            throw new IllegalArgumentException("No key for character: " + part);
+                        }
+                        yield new Key(code, ch);
+                    }
+                    yield new Key(namedKeyCode(name, keys), KeyEvent.CHAR_UNDEFINED);
                 }
             });
         }
-        return codes;
+        return chord;
+    }
+
+    /** Looks up {@code KeyEvent.VK_<name>}, e.g. F5, HOME, END, PAGE_UP, INSERT. */
+    private static int namedKeyCode(String name, String keys) {
+        try {
+            return KeyEvent.class.getField("VK_" + name.replace(' ', '_')).getInt(null);
+        } catch (ReflectiveOperationException e) {
+            throw new IllegalArgumentException("Unknown key \"" + name + "\" in \"" + keys
+                + "\". Use names such as ENTER, TAB, ESCAPE, F5, HOME, PAGE_DOWN, a single character, "
+                + "and modifiers CTRL, SHIFT, ALT, META, SHORTCUT joined with '+'");
+        }
+    }
+
+    /** The platform's menu shortcut key: Cmd on macOS, Ctrl elsewhere. */
+    private static int shortcutKey() {
+        if (GraphicsEnvironment.isHeadless()) {
+            return KeyEvent.VK_CONTROL;
+        }
+        return Toolkit.getDefaultToolkit().getMenuShortcutKeyMaskEx() == InputEvent.META_DOWN_MASK
+            ? KeyEvent.VK_META : KeyEvent.VK_CONTROL;
     }
 
     private Object parseSpinnerValue(JSpinner spinner, String text) {

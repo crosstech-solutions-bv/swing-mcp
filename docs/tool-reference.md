@@ -191,6 +191,7 @@ Type text character-by-character using key events (unlike `fill`).
 |---|---|---|---|
 | `text` | string | yes | Text to type |
 | `uid` | string | no | Component UID to focus before typing |
+| `robot` | boolean | no | Swing: OS-level keystrokes via `Robot` (window must come to the front) |
 
 ### `fill`
 Set the text/value of a text component, `JSpinner`, `JSlider`, or editable
@@ -254,11 +255,15 @@ Swing, `ContextMenu` for JavaFX).
 | `path` | string | yes | Menu item path, e.g. `Copy` or `Refactor > Rename` |
 
 ### `press_key`
-Press a key or key chord using AWT `Robot`.
+Press a key or key chord. Keys are delivered as key events to `uid` or to the component with keyboard
+focus in the application, so they work while it is in the background and never reach another
+application.
 
 | Parameter | Type | Required | Description |
 |---|---|---|---|
-| `keys` | string | yes | e.g. `ENTER`, `TAB`, `CTRL+S` |
+| `keys` | string | yes | e.g. `ENTER`, `TAB`, `F5`, `PAGE_DOWN`, `CTRL+S`, `SHORTCUT+A` |
+| `uid` | string | no | Component to focus and send the keys to |
+| `robot` | boolean | no | Swing: OS-level keystrokes via `Robot`; refused unless the window can be brought to the front |
 
 ### `drag`
 Drag from one component to another using mouse emulation. Swing only; on a

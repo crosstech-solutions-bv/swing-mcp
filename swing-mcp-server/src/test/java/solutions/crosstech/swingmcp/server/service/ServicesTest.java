@@ -128,6 +128,15 @@ class ServicesTest {
     }
 
     @Test
+    void keyCommandsForwardUidAndRobot() {
+        InteractionService service = new InteractionService(registry);
+        service.pressKey("ENTER", "comp-4", null);
+        assertEquals(Map.of("keys", "ENTER", "uid", "comp-4"), requests.poll().params());
+        service.typeText("abc", null, true);
+        assertEquals(Map.of("text", "abc", "robot", true), requests.poll().params());
+    }
+
+    @Test
     void dialogServiceSendsCommands() {
         DialogService service = new DialogService(registry);
         service.listDialogs();

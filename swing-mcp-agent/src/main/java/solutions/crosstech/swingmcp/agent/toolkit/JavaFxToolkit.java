@@ -601,8 +601,7 @@ public class JavaFxToolkit extends AbstractUiToolkit {
     public String typeText(Map<String, Object> p) throws Exception {
         String text = required(p, "text");
         return onUi(() -> {
-            Node n = nodeParam(p);
-            n.requestFocus();
+            Node n = keyTarget(str(p, "uid"), p);
             for (char c : text.toCharArray()) {
                 String s = String.valueOf(c);
                 Event.fireEvent(n, new KeyEvent(KeyEvent.KEY_TYPED, s, s, KeyCode.UNDEFINED,
@@ -610,6 +609,24 @@ public class JavaFxToolkit extends AbstractUiToolkit {
             }
             return "Typed " + text.length() + " character(s)";
         });
+    }
+
+    /**
+     * Where key events go: {@code uid} (focused first) when given, else the focus
+     * owner of the target window's scene, else its root.
+     */
+    private Node keyTarget(String uid, Map<String, Object> p) {
+        if (uid != null && !uid.isBlank()) {
+            Node n = scene.node(uid);
+            n.requestFocus();
+            return n;
+        }
+        Window win = targetWindow(p);
+        Scene sc = win == null ? null : FxScene.sceneOf(win);
+        if (sc == null) {
+            throw new IllegalStateException("No JavaFX window");
+        }
+        return sc.getFocusOwner() != null ? sc.getFocusOwner() : sc.getRoot();
     }
 
     @Override
@@ -944,9 +961,11 @@ public class JavaFxToolkit extends AbstractUiToolkit {
      * {@code "ENTER"}, {@code "TAB"} or {@code "CTRL+A"}, matching the Swing scanner.
      */
     @Override
-    public String pressKey(Map<String, Object> p) throws Exception {
+    public Object pressKey(Map<String, Object> p) throws Exception {
         String keys = str(p, "keys") != null ? str(p, "keys") : required(p, "key");
-        return onUi(() -> {
+        String uid = str(p, "uid");
+        // action, not onUi: a key may open a modal dialog and never return on the FX thread.
+        return action(() -> {
             boolean ctrl = false, shift = false, alt = false, meta = false;
             KeyCode code = null;
             for (String part : keys.toUpperCase().split("\\+")) {
@@ -961,12 +980,7 @@ public class JavaFxToolkit extends AbstractUiToolkit {
             if (code == null) {
                 throw new IllegalArgumentException("No key in chord: " + keys);
             }
-            Window win = targetWindow(p);
-            Scene sc = win == null ? null : FxScene.sceneOf(win);
-            if (sc == null) {
-                throw new IllegalStateException("No JavaFX window");
-            }
-            Node target = sc.getFocusOwner() != null ? sc.getFocusOwner() : sc.getRoot();
+            Node target = keyTarget(uid, p);
             Event.fireEvent(target, new KeyEvent(KeyEvent.KEY_PRESSED, "", "", code, shift, ctrl, alt, meta));
             Event.fireEvent(target, new KeyEvent(KeyEvent.KEY_RELEASED, "", "", code, shift, ctrl, alt, meta));
             return "Key pressed: " + keys;

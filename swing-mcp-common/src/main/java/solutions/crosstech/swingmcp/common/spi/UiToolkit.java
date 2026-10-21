@@ -105,7 +105,8 @@ public interface UiToolkit {
 
     String fill(Map<String, Object> params) throws Exception;
 
-    String typeText(Map<String, Object> params) throws Exception;
+    /** May open a modal dialog (a typed ENTER submits a form); see {@link #click}. */
+    Object typeText(Map<String, Object> params) throws Exception;
 
     String focus(Map<String, Object> params) throws Exception;
 
@@ -126,7 +127,8 @@ public interface UiToolkit {
     /** May open a modal dialog; see {@link #click}. */
     Object handleDialog(Map<String, Object> params) throws Exception;
 
-    String pressKey(Map<String, Object> params) throws Exception;
+    /** May open a modal dialog; see {@link #click}. */
+    Object pressKey(Map<String, Object> params) throws Exception;
 
     String drag(Map<String, Object> params) throws Exception;
 

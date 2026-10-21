@@ -16,6 +16,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   behaviour is available as `mode: SCREEN`. Either way, events already queued on the UI
   thread are processed first, so the image no longer lags one repaint behind the last
   action ([#24](https://github.com/crosstech-solutions-bv/swing-mcp/issues/24)).
+- Swing `press_key` and `type_text` deliver key events straight to the application instead of
+  using `java.awt.Robot`, which sends OS-level keystrokes to whatever application is in front.
+  When the target application was in the background (the normal case when an agent drives it
+  from an editor) keys went to the other application, in the worst case into the user's
+  editor. Keys now go to `uid` (new optional parameter on `press_key`) or to the component
+  with keyboard focus in the application, even while it is inactive, and never to another
+  application. Focus traversal, key bindings, menu accelerators and default buttons behave as
+  for real input, `type_text` can type any character regardless of keyboard layout, and the
+  result names the component that received the keys. A key that opens a modal dialog returns
+  a pending result instead of blocking
+  ([#23](https://github.com/crosstech-solutions-bv/swing-mcp/issues/23)).
+- `type_text` with `uid` no longer brings the window to the front.
 
 ### Fixed
 - `take_screenshot` on a JavaFX window saved a broken file: the JavaFX toolkit returned the
@@ -43,7 +55,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Double`, `BigInteger`, `BigDecimal`), and fractions for integer models or values
   outside the model's bounds are rejected with a clear error, as the spinner's own editor
   would ([#22](https://github.com/crosstech-solutions-bv/swing-mcp/issues/22)).
-  
+- `press_key` silently pressed the first letter of a key name it did not know (`HOME` pressed
+  `H`, `F5` pressed `F`); unknown names are now rejected with the accepted forms.
+
 ### Added
 - `get_app_output` tool: read the captured stdout/stderr of an application started with
   `launch_app`, either the last `tail` lines or the lines after `sinceLine` to follow new
@@ -66,7 +80,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   out-of-range indices are rejected instead of being passed to the table. Works for
   `JTable` and `TableView`; the JavaFX demo table now allows multiple selection
   ([#18](https://github.com/crosstech-solutions-bv/swing-mcp/issues/18)).
-  
+- `robot: true` on `press_key` and `type_text` keeps OS-level keystrokes for applications that
+  need them; the window is brought to the front first (activating the application on macOS),
+  and the call fails rather than typing into another application if that does not work.
+- `press_key` accepts any `KeyEvent.VK_*` name (`F5`, `HOME`, `END`, `PAGE_UP`, `INSERT`, …),
+  `SHORTCUT` (Ctrl, or Cmd on macOS), and `CMD`/`OPTION` aliases. JavaFX `press_key` and
+  `type_text` accept `uid` too.
+
 ## [1.3.0] - 2026-09-14
 
 ### Added

@@ -219,6 +219,18 @@ class DemoFxToolkitIT {
     }
 
     @Test
+    @DisplayName("press_key and type_text accept a target uid (#23)")
+    void keysGoToTheGivenUid() throws Exception {
+        toolkit.selectOption(Map.of("uid", uidOf("tabs"), "text", "Form"));
+        String uid = uidOf("nameField");
+        toolkit.fill(Map.of("uid", uid, "text", ""));
+        toolkit.typeText(Map.of("uid", uid, "text", "Ada"));
+        assertEquals("Ada", toolkit.getComponentDetails(Map.of("uid", uid)).get("text"));
+        Object pressed = toolkit.pressKey(Map.of("uid", uid, "keys", "HOME"));
+        assertTrue(String.valueOf(pressed).contains("HOME"), String.valueOf(pressed));
+    }
+
+    @Test
     @DisplayName("list items are readable and selectable")
     void readAndSelectList() throws Exception {
         String uid = uidOf("cityList");

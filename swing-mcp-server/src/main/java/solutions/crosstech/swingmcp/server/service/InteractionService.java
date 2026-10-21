@@ -45,10 +45,18 @@ public class InteractionService {
 
     /** Types text character-by-character using key events. */
     public Object typeText(String text, String uid) {
+        return typeText(text, uid, null);
+    }
+
+    /** Types text character-by-character, as key events or, with {@code robot}, OS-level keystrokes. */
+    public Object typeText(String text, String uid, Boolean robot) {
         Map<String, Object> params = new HashMap<>();
         params.put("text", text);
         if (uid != null && !uid.isBlank()) {
             params.put("uid", uid);
+        }
+        if (Boolean.TRUE.equals(robot)) {
+            params.put("robot", true);
         }
         return registry.require().send(CommandType.TYPE_TEXT, params);
     }
@@ -119,7 +127,23 @@ public class InteractionService {
 
     /** Presses a key chord, e.g. "CTRL+S" or "ENTER". */
     public Object pressKey(String keys) {
-        return registry.require().send(CommandType.PRESS_KEY, Map.of("keys", keys));
+        return pressKey(keys, null, null);
+    }
+
+    /**
+     * Presses a key chord, sent to {@code uid} when given (else the application's
+     * focus owner), or as OS-level keystrokes with {@code robot}.
+     */
+    public Object pressKey(String keys, String uid, Boolean robot) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("keys", keys);
+        if (uid != null && !uid.isBlank()) {
+            params.put("uid", uid);
+        }
+        if (Boolean.TRUE.equals(robot)) {
+            params.put("robot", true);
+        }
+        return registry.require().send(CommandType.PRESS_KEY, params);
     }
 
     /** Drags from one component to another. */

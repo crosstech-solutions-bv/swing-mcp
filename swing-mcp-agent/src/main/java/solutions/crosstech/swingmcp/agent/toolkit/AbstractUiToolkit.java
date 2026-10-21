@@ -106,6 +106,15 @@ public abstract class AbstractUiToolkit implements UiToolkit {
      * internally (context menus) and must not themselves sit on it.
      */
     protected Object actionOffUi(Callable<?> work) throws Exception {
+        return actionOffUi(work, ACTION_WAIT_MS);
+    }
+
+    /**
+     * As {@link #actionOffUi(Callable)}, waiting up to {@code waitMs} before
+     * answering pending — for actions that legitimately take longer, such as
+     * typing a long text one keystroke at a time.
+     */
+    protected Object actionOffUi(Callable<?> work, long waitMs) throws Exception {
         AtomicReference<Object> result = new AtomicReference<>();
         AtomicReference<Exception> error = new AtomicReference<>();
         CountDownLatch latch = new CountDownLatch(1);
@@ -120,13 +129,20 @@ public abstract class AbstractUiToolkit implements UiToolkit {
         }, id() + "-mcp-action");
         worker.setDaemon(true);
         worker.start();
-        return awaitOrPending(latch, result, error);
+        return awaitOrPending(latch, result, error, waitMs);
     }
 
     private Object awaitOrPending(CountDownLatch latch,
                                   AtomicReference<Object> result,
                                   AtomicReference<Exception> error) throws Exception {
-        if (latch.await(ACTION_WAIT_MS, TimeUnit.MILLISECONDS)) {
+        return awaitOrPending(latch, result, error, ACTION_WAIT_MS);
+    }
+
+    private Object awaitOrPending(CountDownLatch latch,
+                                  AtomicReference<Object> result,
+                                  AtomicReference<Exception> error,
+                                  long waitMs) throws Exception {
+        if (latch.await(waitMs, TimeUnit.MILLISECONDS)) {
             if (error.get() != null) {
                 throw error.get();
             }
