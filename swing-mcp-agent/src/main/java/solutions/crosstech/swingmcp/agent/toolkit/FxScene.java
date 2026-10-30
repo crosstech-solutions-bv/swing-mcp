@@ -39,6 +39,7 @@ import javafx.stage.Window;
 import solutions.crosstech.swingmcp.agent.ClassNames;
 import solutions.crosstech.swingmcp.common.dto.ComponentDescriptor;
 
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -74,15 +75,21 @@ final class FxScene {
     static final String UID_PREFIX = "fx-";
 
     private final AtomicInteger uidCounter = new AtomicInteger(0);
+    /** Live nodes only: pruned, so a detached node is not kept alive by the registry. */
     private final ConcurrentHashMap<String, Node> uidToNode = new ConcurrentHashMap<>();
+    /** Every node ever seen, weakly: a node keeps its uid across detach and re-attach. */
     private final Map<Node, String> nodeToUid = new WeakHashMap<>();
-    private final ConcurrentHashMap<String, MenuItem> uidToMenuItem = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, WeakReference<MenuItem>> uidToMenuItem = new ConcurrentHashMap<>();
+    private final Map<MenuItem, String> menuItemToUid = new WeakHashMap<>();
 
     // ---- uid registry -----------------------------------------------------
 
     synchronized String uidFor(Node node) {
         String existing = nodeToUid.get(node);
         if (existing != null) {
+            // prune() may have dropped it while the node was detached; seeing it
+            // again means it is back in a scene, so it must resolve again.
+            uidToNode.putIfAbsent(existing, node);
             return existing;
         }
         String uid = UID_PREFIX + uidCounter.incrementAndGet();
@@ -92,18 +99,22 @@ final class FxScene {
     }
 
     synchronized String uidFor(MenuItem item) {
-        for (Map.Entry<String, MenuItem> e : uidToMenuItem.entrySet()) {
-            if (e.getValue() == item) {
-                return e.getKey();
-            }
+        String existing = menuItemToUid.get(item);
+        if (existing != null) {
+            uidToMenuItem.putIfAbsent(existing, new WeakReference<>(item));
+            return existing;
         }
         String uid = UID_PREFIX + uidCounter.incrementAndGet();
-        uidToMenuItem.put(uid, item);
+        menuItemToUid.put(item, uid);
+        uidToMenuItem.put(uid, new WeakReference<>(item));
         return uid;
     }
 
     Node node(String uid) {
         Node n = uidToNode.get(uid);
+        if (n == null) {
+            n = reattached(uid);
+        }
         if (n == null) {
             throw new IllegalArgumentException("Unknown uid: " + uid
                 + ". Take a fresh snapshot — uids are invalidated when the scene is rebuilt.");
@@ -111,8 +122,23 @@ final class FxScene {
         return n;
     }
 
+    /**
+     * A pruned node that has since gone back into a live scene, re-registered;
+     * null if there is none. Only reached on a miss, so the scan is rare.
+     */
+    private synchronized Node reattached(String uid) {
+        for (Map.Entry<Node, String> e : nodeToUid.entrySet()) {
+            if (uid.equals(e.getValue()) && e.getKey() != null && e.getKey().getScene() != null) {
+                uidToNode.put(uid, e.getKey());
+                return e.getKey();
+            }
+        }
+        return null;
+    }
+
     MenuItem menuItem(String uid) {
-        MenuItem m = uidToMenuItem.get(uid);
+        WeakReference<MenuItem> ref = uidToMenuItem.get(uid);
+        MenuItem m = ref == null ? null : ref.get();
         if (m == null) {
             throw new IllegalArgumentException("Unknown menu uid: " + uid);
         }
@@ -120,12 +146,18 @@ final class FxScene {
     }
 
     boolean isMenuUid(String uid) {
-        return uidToMenuItem.containsKey(uid);
+        WeakReference<MenuItem> ref = uidToMenuItem.get(uid);
+        return ref != null && ref.get() != null;
     }
 
-    /** Drops entries whose node is no longer attached to a live scene. */
+    /**
+     * Drops entries whose node is no longer attached to a live scene, and menu
+     * items that have been collected. A dropped node keeps its uid in the weak
+     * reverse map, so it resolves again if it is re-attached.
+     */
     synchronized void prune() {
         uidToNode.entrySet().removeIf(e -> e.getValue().getScene() == null);
+        uidToMenuItem.entrySet().removeIf(e -> e.getValue().get() == null);
     }
 
     // ---- walking ----------------------------------------------------------
@@ -378,7 +410,11 @@ final class FxScene {
 
     // ---- tabular reads ----------------------------------------------------
 
-    /** Rows {@code [startRow, endRow)} of the table, clamped to what exists. */
+    /**
+     * Rows {@code startRow..endRow} of the table, zero-based and inclusive as on
+     * the wire (and in the Swing scanner), clamped to what exists. {@code truncated}
+     * is set when rows exist past the last one returned.
+     */
     static Map<String, Object> tableData(TableView<?> table, int startRow, int endRow) {
         List<String> columns = new ArrayList<>();
         for (TableColumn<?, ?> c : table.getColumns()) {
@@ -386,7 +422,8 @@ final class FxScene {
         }
         List<List<String>> rows = new ArrayList<>();
         int total = table.getItems().size();
-        int limit = Math.min(total, endRow);
+        // Exclusive bound of the rows returned; written so endRow = MAX_VALUE cannot overflow.
+        int limit = endRow < 0 ? 0 : Math.min(total - 1, endRow) + 1;
         for (int r = Math.min(startRow, total); r < limit; r++) {
             List<String> row = new ArrayList<>();
             for (TableColumn<?, ?> c : table.getColumns()) {
@@ -417,11 +454,11 @@ final class FxScene {
         }
     }
 
-    /** Items {@code [start, end)} of the list, clamped to what exists. */
+    /** Items {@code start..end} of the list, zero-based and inclusive, clamped to what exists. */
     static Map<String, Object> listItems(ListView<?> list, int start, int end) {
         ObservableList<?> items = list.getItems();
         List<String> values = new ArrayList<>();
-        int limit = Math.min(items.size(), end);
+        int limit = end < 0 ? 0 : Math.min(items.size() - 1, end) + 1;
         for (int i = Math.min(start, items.size()); i < limit; i++) {
             Object v = items.get(i);
             values.add(v == null ? null : String.valueOf(v));
