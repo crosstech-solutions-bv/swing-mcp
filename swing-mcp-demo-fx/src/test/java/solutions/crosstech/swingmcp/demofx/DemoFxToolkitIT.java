@@ -3,9 +3,18 @@ package solutions.crosstech.swingmcp.demofx;
 import javafx.application.Platform;
 import javafx.event.EventHandler;
 import javafx.scene.Node;
+import javafx.scene.Scene;
+import javafx.scene.control.Alert;
+import javafx.scene.control.Button;
+import javafx.scene.control.ButtonType;
+import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
 import javafx.scene.control.skin.VirtualFlow;
+import javafx.scene.input.KeyCode;
+import javafx.scene.input.KeyEvent;
 import javafx.scene.input.ScrollEvent;
+import javafx.scene.layout.VBox;
+import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 import org.junit.jupiter.api.AfterAll;
@@ -24,11 +33,13 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -376,7 +387,7 @@ class DemoFxToolkitIT {
     @DisplayName("a tree node is selectable by path")
     void selectTreeNodeByPath() throws Exception {
         String uid = uidOf("regionTree");
-        toolkit.selectTreeNode(Map.of("uid", uid, "path", "Regions/Europe/Belgium"));
+        toolkit.selectTreeNode(Map.of("uid", uid, "path", "Regions > Europe > Belgium"));
         assertEquals("Belgium", toolkit.getComponentDetails(Map.of("uid", uid)).get("selectionState"));
     }
 
@@ -551,5 +562,367 @@ class DemoFxToolkitIT {
             () -> toolkit.mouseWheel(Map.of("uid", canvas, "rotation", 1, "modifiers", "HYPER")));
         assertThrows(IllegalArgumentException.class,
             () -> toolkit.mouseWheel(Map.of("uid", canvas, "rotation", 0)));
+    }
+
+    // ---- ranges, paths and uids ---------------------------------------------
+
+    @Test
+    @DisplayName("table endRow is inclusive, as on the wire, and truncated means rows were left out")
+    @SuppressWarnings("unchecked")
+    void tableRangeIsInclusive() throws Exception {
+        String uid = uidOf("partsTable");
+        Map<String, Object> firstTwo = toolkit.getTableData(Map.of("uid", uid, "startRow", 0, "endRow", 1));
+        List<List<String>> rows = (List<List<String>>) firstTwo.get("rows");
+        assertEquals(2, rows.size(), "rows 0..1: " + rows);
+        assertEquals("SKU-2", rows.get(1).get(0));
+        assertEquals(Boolean.TRUE, firstTwo.get("truncated"));
+
+        Map<String, Object> all = toolkit.getTableData(Map.of("uid", uid, "startRow", 0, "endRow", 2));
+        assertEquals(3, ((List<?>) all.get("rows")).size());
+        assertNull(all.get("truncated"), "the last row was returned");
+
+        Map<String, Object> rest = toolkit.getTableData(Map.of("uid", uid, "startRow", 1));
+        rows = (List<List<String>>) rest.get("rows");
+        assertEquals(List.of("SKU-2", "SKU-3"), rows.stream().map(r -> r.get(0)).toList());
+        assertNull(rest.get("truncated"));
+
+        Map<String, Object> capped = toolkit.getTableData(Map.of("uid", uid, "maxRows", 1));
+        assertEquals(1, ((List<?>) capped.get("rows")).size(), "maxRows still caps an open range");
+        assertEquals(Boolean.TRUE, capped.get("truncated"));
+    }
+
+    @Test
+    @DisplayName("list endIndex is inclusive, as on the wire")
+    void listRangeIsInclusive() throws Exception {
+        String uid = uidOf("cityList");
+        Map<String, Object> middle = toolkit.getListItems(Map.of("uid", uid, "startIndex", 1, "endIndex", 2));
+        assertEquals(List.of("Rotterdam", "Utrecht"), middle.get("items"));
+        assertEquals(Boolean.TRUE, middle.get("truncated"));
+        Map<String, Object> last = toolkit.getListItems(Map.of("uid", uid, "startIndex", 3, "endIndex", 3));
+        assertEquals(List.of("Cape Town"), last.get("items"));
+        assertNull(last.get("truncated"));
+    }
+
+    @Test
+    @DisplayName("a tree path uses ' > ' like Swing, and a slash is part of a name")
+    void treePathUsesSwingSeparator() throws Exception {
+        String uid = uidOf("regionTree");
+        toolkit.selectTreeNode(Map.of("uid", uid, "path", "Europe>Netherlands"));
+        assertEquals("Netherlands", toolkit.getComponentDetails(Map.of("uid", uid)).get("selectionState"));
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+            () -> toolkit.selectTreeNode(Map.of("uid", uid, "path", "Regions/Europe/Belgium")));
+        assertTrue(e.getMessage().contains("Regions/Europe/Belgium"), e.getMessage());
+    }
+
+    @Test
+    @DisplayName("a node detached and re-attached keeps a uid that still resolves")
+    void reattachedNodeKeepsItsUid() throws Exception {
+        String uid = uidOf("statusLabel");
+        javafx.scene.layout.BorderPane root = fx(() -> (javafx.scene.layout.BorderPane) mainStage().getScene().getRoot());
+        Node status = fx(root::getBottom);
+        fx(() -> {
+            root.setBottom(null);
+            return null;
+        });
+        try {
+            toolkit.takeSnapshot(Map.of()); // prunes the detached label
+            assertThrows(IllegalArgumentException.class, () -> toolkit.getComponentDetails(Map.of("uid", uid)));
+        } finally {
+            fx(() -> {
+                root.setBottom(status);
+                return null;
+            });
+        }
+        assertEquals("Ready", toolkit.getComponentDetails(Map.of("uid", uid)).get("text"),
+            "the old uid must resolve once the node is back");
+        assertTrue(allNodes(toolkit.takeSnapshot(Map.of())).stream().anyMatch(d -> d.uid().equals(uid)),
+            "a snapshot must hand out the same uid again");
+        assertEquals(uid, uidOf("statusLabel"));
+    }
+
+    @Test
+    @DisplayName("a menu item keeps one uid across snapshots")
+    void menuItemUidIsStable() throws Exception {
+        String first = menuUid("About");
+        assertEquals(first, menuUid("About"));
+        assertEquals("MenuItem", toolkit.getComponentDetails(Map.of("uid", first)).get("componentClass"));
+    }
+
+    private String menuUid(String text) throws Exception {
+        return allNodes(toolkit.takeSnapshot(Map.of())).stream()
+            .filter(d -> text.equals(d.text()) && "MenuItem".equals(d.componentClass()))
+            .map(ComponentDescriptor::uid).findFirst().orElseThrow();
+    }
+
+    // ---- keys -----------------------------------------------------------------
+
+    @Test
+    @DisplayName("press_key types printable keys, honouring SHIFT, and not with SHORTCUT held")
+    void pressKeyTypesCharacters() throws Exception {
+        toolkit.selectOption(Map.of("uid", uidOf("tabs"), "text", "Form"));
+        String uid = uidOf("nameField");
+        toolkit.fill(Map.of("uid", uid, "text", ""));
+        List<KeyEvent> seen = new CopyOnWriteArrayList<>();
+        Node field = fx(() -> mainStage().getScene().lookup("#nameField"));
+        EventHandler<KeyEvent> recorder = seen::add;
+        fx(() -> {
+            field.addEventFilter(KeyEvent.ANY, recorder);
+            return null;
+        });
+        try {
+            toolkit.pressKey(Map.of("uid", uid, "keys", "A"));
+            toolkit.pressKey(Map.of("uid", uid, "keys", "SHIFT+b"));
+            toolkit.pressKey(Map.of("uid", uid, "keys", "1"));
+            assertEquals("aB1", toolkit.getComponentDetails(Map.of("uid", uid)).get("text"));
+            List<KeyCode> pressed = codes(seen, KeyEvent.KEY_PRESSED);
+            assertTrue(pressed.containsAll(List.of(KeyCode.A, KeyCode.SHIFT, KeyCode.B, KeyCode.DIGIT1)), "" + pressed);
+
+            seen.clear();
+            toolkit.pressKey(Map.of("uid", uid, "keys", "SHORTCUT+A"));
+            assertEquals("aB1", toolkit.getComponentDetails(Map.of("uid", uid)).get("text"),
+                "a shortcut chord must not type");
+            assertTrue(seen.stream().anyMatch(e -> e.getEventType() == KeyEvent.KEY_PRESSED
+                && e.getCode() == KeyCode.A && e.isShortcutDown()), "SHORTCUT held: " + seen);
+            assertTrue(seen.stream().noneMatch(e -> e.getEventType() == KeyEvent.KEY_TYPED), "" + seen);
+        } finally {
+            fx(() -> {
+                field.removeEventFilter(KeyEvent.ANY, recorder);
+                return null;
+            });
+        }
+    }
+
+    @Test
+    @DisplayName("press_key accepts the key names Swing accepts")
+    void pressKeyAcceptsSwingKeyNames() throws Exception {
+        toolkit.selectOption(Map.of("uid", uidOf("tabs"), "text", "Form"));
+        String uid = uidOf("nameField");
+        List<KeyEvent> seen = new CopyOnWriteArrayList<>();
+        Node field = fx(() -> mainStage().getScene().lookup("#nameField"));
+        EventHandler<KeyEvent> recorder = seen::add;
+        fx(() -> {
+            field.addEventFilter(KeyEvent.KEY_PRESSED, recorder);
+            return null;
+        });
+        try {
+            for (String key : List.of("ESC", "RETURN", "PGUP", "PGDN", "DEL", "BACKSPACE", "F5", "Page Up", "OPTION+X")) {
+                toolkit.pressKey(Map.of("uid", uid, "keys", key));
+            }
+            assertEquals(List.of(KeyCode.ESCAPE, KeyCode.ENTER, KeyCode.PAGE_UP, KeyCode.PAGE_DOWN, KeyCode.DELETE,
+                KeyCode.BACK_SPACE, KeyCode.F5, KeyCode.PAGE_UP, KeyCode.ALT, KeyCode.X), codes(seen, KeyEvent.KEY_PRESSED));
+            assertTrue(seen.get(seen.size() - 1).isAltDown(), "OPTION is ALT");
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> toolkit.pressKey(Map.of("uid", uid, "keys", "CTRL+HYPERKEY")));
+            assertTrue(e.getMessage().contains("HYPERKEY"), e.getMessage());
+        } finally {
+            fx(() -> {
+                field.removeEventFilter(KeyEvent.KEY_PRESSED, recorder);
+                return null;
+            });
+        }
+    }
+
+    private static List<KeyCode> codes(List<KeyEvent> events, javafx.event.EventType<KeyEvent> type) {
+        return events.stream().filter(e -> e.getEventType() == type).map(KeyEvent::getCode).toList();
+    }
+
+    @Test
+    @DisplayName("type_text that opens a modal dialog comes back pending instead of blocking")
+    void typeTextOpeningDialogIsPending() throws Exception {
+        toolkit.selectOption(Map.of("uid", uidOf("tabs"), "text", "Form"));
+        String uid = uidOf("nameField");
+        toolkit.fill(Map.of("uid", uid, "text", ""));
+        Node field = fx(() -> mainStage().getScene().lookup("#nameField"));
+        EventHandler<KeyEvent> shout = e -> {
+            if ("!".equals(e.getCharacter())) {
+                Alert alert = new Alert(Alert.AlertType.WARNING, "No shouting");
+                alert.setTitle("Typed");
+                alert.initOwner(mainStage());
+                alert.showAndWait();
+            }
+        };
+        fx(() -> {
+            field.addEventHandler(KeyEvent.KEY_TYPED, shout);
+            return null;
+        });
+        try {
+            Map<String, Object> pending = pending(toolkit.typeText(Map.of("uid", uid, "text", "hi!")));
+            assertEquals(Boolean.TRUE, pending.get("modalDialogOpen"));
+            assertTrue(dialogTitles(pending).contains("Typed"), "" + pending);
+            assertEquals("Pressed OK", toolkit.handleDialog(Map.of("button", "OK")));
+            waitUntil("typing finished", () -> "hi!".equals(
+                toolkit.getComponentDetails(Map.of("uid", uid)).get("text")));
+        } finally {
+            fx(() -> {
+                field.removeEventHandler(KeyEvent.KEY_TYPED, shout);
+                return null;
+            });
+        }
+    }
+
+    // ---- windows and dialogs ----------------------------------------------------
+
+    private static Stage mainStage() {
+        return (Stage) Window.getWindows().get(0);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> pending(Object result) {
+        assertTrue(result instanceof Map, "expected a pending map, got " + result);
+        Map<String, Object> pending = (Map<String, Object>) result;
+        assertEquals("pending", pending.get("status"));
+        return pending;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<Object> dialogTitles(Map<String, Object> pending) {
+        return ((List<Map<String, Object>>) pending.get("dialogs")).stream().map(d -> d.get("title")).toList();
+    }
+
+    private int windowIndex(String title) throws Exception {
+        for (Map<String, Object> w : toolkit.listWindows()) {
+            if (title.equals(w.get("title"))) {
+                return (Integer) w.get("index");
+            }
+        }
+        throw new AssertionError("no window titled " + title);
+    }
+
+    private static Stage showEditor(EventHandler<javafx.stage.WindowEvent> onCloseRequest) throws Exception {
+        return fx(() -> {
+            Stage s = new Stage();
+            s.setTitle("Editor");
+            s.setScene(new Scene(new VBox(new Label("unsaved document")), 240, 120));
+            s.setOnCloseRequest(onCloseRequest);
+            s.show();
+            return s;
+        });
+    }
+
+    @Test
+    @DisplayName("close_window runs onCloseRequest, and a consumed request keeps the window open")
+    void closeWindowHonoursVeto() throws Exception {
+        AtomicInteger attempts = new AtomicInteger();
+        Stage editor = showEditor(e -> {
+            attempts.incrementAndGet();
+            e.consume();
+        });
+        try {
+            Object vetoed = toolkit.closeWindow(Map.of("windowIndex", windowIndex("Editor")));
+            assertTrue(String.valueOf(vetoed).contains("vetoed"), String.valueOf(vetoed));
+            assertEquals(1, attempts.get(), "onCloseRequest must run");
+            assertTrue(fx(editor::isShowing));
+
+            fx(() -> {
+                editor.setOnCloseRequest(e -> attempts.incrementAndGet());
+                return null;
+            });
+            assertEquals("Closed Editor", toolkit.closeWindow(Map.of("windowIndex", windowIndex("Editor"))));
+            assertEquals(2, attempts.get());
+            assertFalse(fx(editor::isShowing));
+        } finally {
+            fx(() -> {
+                editor.close();
+                return null;
+            });
+        }
+    }
+
+    @Test
+    @DisplayName("close_window with a save-changes prompt comes back pending and obeys the answer")
+    void closeWindowWithPromptIsPending() throws Exception {
+        ButtonType discard = new ButtonType("Discard");
+        ButtonType cancel = new ButtonType("Cancel");
+        AtomicReference<Stage> ref = new AtomicReference<>();
+        Stage editor = showEditor(e -> {
+            Alert prompt = new Alert(Alert.AlertType.CONFIRMATION, "Save changes?", discard, cancel);
+            prompt.setTitle("Unsaved changes");
+            prompt.initOwner(ref.get());
+            if (prompt.showAndWait().orElse(cancel) != discard) {
+                e.consume();
+            }
+        });
+        ref.set(editor);
+        try {
+            Map<String, Object> pending = pending(toolkit.closeWindow(Map.of("windowIndex", windowIndex("Editor"))));
+            assertEquals(Boolean.TRUE, pending.get("modalDialogOpen"));
+            assertTrue(dialogTitles(pending).contains("Unsaved changes"), "" + pending);
+            assertEquals("Pressed Cancel", toolkit.handleDialog(Map.of("button", "Cancel")));
+            waitUntil("prompt gone", () -> toolkit.listDialogs().isEmpty());
+            assertTrue(fx(editor::isShowing), "Cancel keeps the window open");
+
+            pending(toolkit.closeWindow(Map.of("windowIndex", windowIndex("Editor"))));
+            assertEquals("Pressed Discard", toolkit.handleDialog(Map.of("button", "Discard")));
+            waitUntil("editor closed", () -> !fx(editor::isShowing));
+        } finally {
+            fx(() -> {
+                editor.setOnCloseRequest(null);
+                editor.close();
+                return null;
+            });
+        }
+    }
+
+    @Test
+    @DisplayName("handle_dialog acts on the topmost of two nested modal dialogs")
+    void handleDialogTargetsTopmost() throws Exception {
+        AtomicInteger outerPressed = new AtomicInteger();
+        Stage outer = fx(() -> {
+            Stage s = new Stage();
+            s.initOwner(mainStage());
+            s.initModality(Modality.WINDOW_MODAL);
+            s.setTitle("Outer");
+            Button ok = new Button("OK");
+            ok.setOnAction(e -> {
+                outerPressed.incrementAndGet();
+                s.close();
+            });
+            s.setScene(new Scene(new VBox(ok), 240, 120));
+            s.show();
+            return s;
+        });
+        AtomicReference<Alert> inner = new AtomicReference<>();
+        try {
+            openInner(outer, inner);
+            assertEquals("Pressed OK", toolkit.handleDialog(Map.of("button", "OK")));
+            waitUntil("inner dismissed", () -> !fx(() -> showing(inner.get())));
+            assertEquals(0, outerPressed.get(), "the OK of the dialog underneath was pressed");
+            assertTrue(fx(outer::isShowing));
+
+            openInner(outer, inner);
+            assertEquals("Closed dialog", toolkit.handleDialog(Map.of()));
+            waitUntil("inner closed", () -> !fx(() -> showing(inner.get())));
+            assertTrue(fx(outer::isShowing), "without a button only the topmost dialog closes");
+
+            assertEquals("Closed dialog", toolkit.handleDialog(Map.of()));
+            waitUntil("outer closed", () -> !fx(outer::isShowing));
+            assertEquals(0, outerPressed.get());
+        } finally {
+            fx(() -> {
+                if (inner.get() != null && showing(inner.get())) {
+                    ((Stage) inner.get().getDialogPane().getScene().getWindow()).close();
+                }
+                outer.close();
+                return null;
+            });
+        }
+    }
+
+    private static void openInner(Stage owner, AtomicReference<Alert> inner) throws Exception {
+        inner.set(null);
+        Platform.runLater(() -> {
+            Alert alert = new Alert(Alert.AlertType.INFORMATION, "Nested");
+            alert.setTitle("Inner");
+            alert.initOwner(owner);
+            inner.set(alert);
+            alert.showAndWait();
+        });
+        waitUntil("inner dialog shown", () -> fx(() -> inner.get() != null && showing(inner.get())));
+    }
+
+    /** Whether a dialog's window is on screen; read from the window, which handle_dialog may close directly. */
+    private static boolean showing(Alert alert) {
+        Scene sc = alert.getDialogPane().getScene();
+        return sc != null && sc.getWindow() != null && sc.getWindow().isShowing();
     }
 }

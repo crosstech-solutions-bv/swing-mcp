@@ -31,6 +31,7 @@ import javafx.scene.input.MouseEvent;
 import javafx.scene.input.ScrollEvent;
 import javafx.stage.Stage;
 import javafx.stage.Window;
+import javafx.stage.WindowEvent;
 import solutions.crosstech.swingmcp.agent.ClassNames;
 import solutions.crosstech.swingmcp.common.dto.ComponentDescriptor;
 import solutions.crosstech.swingmcp.common.dto.SnapshotNode;
@@ -361,9 +362,13 @@ public class JavaFxToolkit extends AbstractUiToolkit {
                 throw new IllegalArgumentException("Component " + str(p, "uid")
                     + " is a " + ClassNames.displayName(n.getClass()) + ", not a TableView");
             }
+            // Wire contract (DataService.getTableData): startRow/endRow are a
+            // zero-based inclusive range, as in the Swing scanner. With no endRow,
+            // at most maxRows rows are returned from startRow.
             int startRow = Math.max(0, intOr(p, "startRow", 0));
             int endRow = intOr(p, "endRow", -1);
-            return FxScene.tableData(table, startRow, endRow < 0 ? startRow + intOr(p, "maxRows", DEFAULT_MAX_ROWS) : endRow);
+            return FxScene.tableData(table, startRow,
+                endRow < 0 ? startRow + intOr(p, "maxRows", DEFAULT_MAX_ROWS) - 1 : endRow);
         });
     }
 
@@ -372,9 +377,11 @@ public class JavaFxToolkit extends AbstractUiToolkit {
         return onUi(() -> {
             Node n = nodeParam(p);
             if (n instanceof ListView<?> list) {
+                // startIndex/endIndex: zero-based and inclusive, as for tables.
                 int start = Math.max(0, intOr(p, "startIndex", 0));
                 int end = intOr(p, "endIndex", -1);
-                return FxScene.listItems(list, start, end < 0 ? start + intOr(p, "maxItems", DEFAULT_MAX_ROWS) : end);
+                return FxScene.listItems(list, start,
+                    end < 0 ? start + intOr(p, "maxItems", DEFAULT_MAX_ROWS) - 1 : end);
             }
             if (n instanceof ComboBox<?> cb) {
                 Map<String, Object> m = new LinkedHashMap<>();
@@ -568,7 +575,7 @@ public class JavaFxToolkit extends AbstractUiToolkit {
     private record Modifiers(boolean shift, boolean ctrl, boolean alt, boolean meta) {
         static Modifiers parse(String text) {
             boolean shift = false, ctrl = false, alt = false, meta = false;
-            boolean mac = System.getProperty("os.name", "").toLowerCase().contains("mac");
+            boolean mac = isMac();
             for (String part : (text == null ? "" : text).toUpperCase().split("[+,\\s]+")) {
                 switch (part) {
                     case "" -> { }
@@ -692,19 +699,25 @@ public class JavaFxToolkit extends AbstractUiToolkit {
      * inserts the character itself in response to that event, exactly as it does
      * for a physical keystroke — inserting it here as well would put every
      * character in twice, which is what an earlier version of this method did.</p>
+     *
+     * <p>Fire-and-poll, like the other actions: a key handler may open a modal
+     * dialog, which never returns on the FX thread. The wait grows with the text,
+     * as the Swing toolkit's does, so a long text is not reported pending.</p>
      */
     @Override
-    public String typeText(Map<String, Object> p) throws Exception {
+    public Object typeText(Map<String, Object> p) throws Exception {
         String text = required(p, "text");
-        return onUi(() -> {
-            Node n = keyTarget(str(p, "uid"), p);
+        String uid = str(p, "uid");
+        long waitMs = Math.min(UI_TIMEOUT_MS, ACTION_WAIT_MS + 20L * text.length());
+        return actionOffUi(() -> invokeOnUiThread(() -> {
+            Node n = keyTarget(uid, p);
             for (char c : text.toCharArray()) {
                 String s = String.valueOf(c);
                 Event.fireEvent(n, new KeyEvent(KeyEvent.KEY_TYPED, s, s, KeyCode.UNDEFINED,
                     false, false, false, false));
             }
             return "Typed " + text.length() + " character(s)";
-        });
+        }, Long.MAX_VALUE), waitMs);
     }
 
     /**
@@ -823,7 +836,8 @@ public class JavaFxToolkit extends AbstractUiToolkit {
             if (!(n instanceof TreeView<?> tree)) {
                 throw new IllegalArgumentException("Component is not a TreeView");
             }
-            String[] parts = path.split("/");
+            // Same "A > B > C" path syntax as the Swing scanner and the menu tools.
+            String[] parts = path.trim().split("\\s*>\\s*");
             TreeItem<?> current = tree.getRoot();
             if (current == null) {
                 throw new IllegalStateException("Tree has no root");
@@ -1017,7 +1031,12 @@ public class JavaFxToolkit extends AbstractUiToolkit {
     public Object handleDialog(Map<String, Object> p) throws Exception {
         String button = str(p, "button");
         return action(() -> {
-            for (Window w : windows()) {
+            // Topmost first: windows() is in the order they were shown, so the
+            // last modal one is the dialog the user is looking at — a nested
+            // dialog, not the one blocked underneath it.
+            List<Window> all = windows();
+            for (int i = all.size() - 1; i >= 0; i--) {
+                Window w = all.get(i);
                 if (!FxScene.isModal(w)) {
                     continue;
                 }
@@ -1058,33 +1077,149 @@ public class JavaFxToolkit extends AbstractUiToolkit {
 
     /**
      * Wire contract (InteractionService.pressKey): {@code keys} is a chord such as
-     * {@code "ENTER"}, {@code "TAB"} or {@code "CTRL+A"}, matching the Swing scanner.
+     * {@code "ENTER"}, {@code "TAB"} or {@code "CTRL+A"}, matching the Swing scanner:
+     * the same modifier and key names (SHORTCUT, OPTION, ESC, RETURN, PGUP, PGDN,
+     * DEL, ...), any {@link KeyCode} name, or a single character.
+     *
+     * <p>The chord is dispatched as the keyboard produces it: modifiers pressed in
+     * order, then each key pressed, typed (when it produces a character and no
+     * Ctrl/Alt/Meta is held) and released, then the modifiers released. Without the
+     * {@code KEY_TYPED} a text control would insert nothing. As in Swing, a letter
+     * types lower case unless SHIFT is part of the chord.</p>
      */
     @Override
     public Object pressKey(Map<String, Object> p) throws Exception {
         String keys = str(p, "keys") != null ? str(p, "keys") : required(p, "key");
         String uid = str(p, "uid");
+        List<Key> chord = parseKeyChord(keys);
         // action, not onUi: a key may open a modal dialog and never return on the FX thread.
         return action(() -> {
-            boolean ctrl = false, shift = false, alt = false, meta = false;
-            KeyCode code = null;
-            for (String part : keys.toUpperCase().split("\\+")) {
-                switch (part.trim()) {
-                    case "CTRL", "CONTROL" -> ctrl = true;
-                    case "SHIFT" -> shift = true;
-                    case "ALT" -> alt = true;
-                    case "META", "CMD", "COMMAND" -> meta = true;
-                    default -> code = KeyCode.valueOf(part.trim().replace(' ', '_'));
-                }
-            }
-            if (code == null) {
-                throw new IllegalArgumentException("No key in chord: " + keys);
-            }
             Node target = keyTarget(uid, p);
-            Event.fireEvent(target, new KeyEvent(KeyEvent.KEY_PRESSED, "", "", code, shift, ctrl, alt, meta));
-            Event.fireEvent(target, new KeyEvent(KeyEvent.KEY_RELEASED, "", "", code, shift, ctrl, alt, meta));
+            boolean shift = false, ctrl = false, alt = false, meta = false;
+            List<Key> modifiers = chord.stream().filter(Key::isModifier).toList();
+            for (Key mod : modifiers) {
+                shift |= mod.code() == KeyCode.SHIFT;
+                ctrl |= mod.code() == KeyCode.CONTROL;
+                alt |= mod.code() == KeyCode.ALT;
+                meta |= mod.code() == KeyCode.META;
+                fireKey(target, KeyEvent.KEY_PRESSED, mod.code(), "", shift, ctrl, alt, meta);
+            }
+            for (Key key : chord) {
+                if (key.isModifier()) {
+                    continue;
+                }
+                String ch = key.ch();
+                if (ch != null && ch.length() == 1 && Character.isLetter(ch.charAt(0))) {
+                    ch = shift ? ch.toUpperCase() : ch.toLowerCase();
+                }
+                fireKey(target, KeyEvent.KEY_PRESSED, key.code(), ch, shift, ctrl, alt, meta);
+                if (ch != null && !ctrl && !alt && !meta) {
+                    Event.fireEvent(target, new KeyEvent(KeyEvent.KEY_TYPED, ch, ch, KeyCode.UNDEFINED,
+                        shift, ctrl, alt, meta));
+                }
+                fireKey(target, KeyEvent.KEY_RELEASED, key.code(), ch, shift, ctrl, alt, meta);
+            }
+            for (int i = modifiers.size() - 1; i >= 0; i--) {
+                KeyCode code = modifiers.get(i).code();
+                shift &= code != KeyCode.SHIFT;
+                ctrl &= code != KeyCode.CONTROL;
+                alt &= code != KeyCode.ALT;
+                meta &= code != KeyCode.META;
+                fireKey(target, KeyEvent.KEY_RELEASED, code, "", shift, ctrl, alt, meta);
+            }
             return "Key pressed: " + keys;
         });
+    }
+
+    private static void fireKey(Node target, javafx.event.EventType<KeyEvent> type, KeyCode code, String text,
+                                boolean shift, boolean ctrl, boolean alt, boolean meta) {
+        Event.fireEvent(target, new KeyEvent(type, KeyEvent.CHAR_UNDEFINED, text == null ? "" : text, code,
+            shift, ctrl, alt, meta));
+    }
+
+    /** A key of a chord: its key code and the character it types, or null if none. */
+    record Key(KeyCode code, String ch) {
+        boolean isModifier() {
+            return code == KeyCode.SHIFT || code == KeyCode.CONTROL || code == KeyCode.ALT || code == KeyCode.META;
+        }
+    }
+
+    /**
+     * Parses a chord such as {@code "CTRL+SHIFT+S"}, {@code "ENTER"}, {@code "F5"}
+     * or {@code "PAGE_DOWN"} into keys, accepting the same names as the Swing
+     * scanner's parser.
+     */
+    static List<Key> parseKeyChord(String keys) {
+        List<Key> chord = new ArrayList<>();
+        for (String raw : keys.split("\\+")) {
+            String part = raw.trim();
+            String name = part.toUpperCase();
+            chord.add(switch (name) {
+                case "CTRL", "CONTROL" -> new Key(KeyCode.CONTROL, null);
+                case "ALT", "OPTION" -> new Key(KeyCode.ALT, null);
+                case "SHIFT" -> new Key(KeyCode.SHIFT, null);
+                case "META", "CMD", "COMMAND" -> new Key(KeyCode.META, null);
+                // KeyEvent.isShortcutDown() follows from this: Cmd on macOS, Ctrl elsewhere.
+                case "SHORTCUT" -> new Key(isMac() ? KeyCode.META : KeyCode.CONTROL, null);
+                case "ENTER", "RETURN" -> new Key(KeyCode.ENTER, "\r");
+                case "ESCAPE", "ESC" -> new Key(KeyCode.ESCAPE, "\u001b");
+                case "TAB" -> new Key(KeyCode.TAB, "\t");
+                case "SPACE" -> new Key(KeyCode.SPACE, " ");
+                case "BACKSPACE", "BACK_SPACE" -> new Key(KeyCode.BACK_SPACE, "\b");
+                case "DELETE", "DEL" -> new Key(KeyCode.DELETE, "\u007f");
+                case "PGUP" -> new Key(KeyCode.PAGE_UP, null);
+                case "PGDN" -> new Key(KeyCode.PAGE_DOWN, null);
+                default -> part.length() == 1 ? new Key(keyCodeForChar(part.charAt(0)), part)
+                    : new Key(namedKeyCode(part, keys), null);
+            });
+        }
+        if (chord.isEmpty()) {
+            throw new IllegalArgumentException("No key in chord: " + keys);
+        }
+        return chord;
+    }
+
+    /** The key that types {@code c} on a US layout; UNDEFINED (still typed) for any other character. */
+    private static KeyCode keyCodeForChar(char c) {
+        if (c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z') {
+            return KeyCode.valueOf(String.valueOf(Character.toUpperCase(c)));
+        }
+        if (c >= '0' && c <= '9') {
+            return KeyCode.valueOf("DIGIT" + c);
+        }
+        return switch (c) {
+            case ',' -> KeyCode.COMMA;
+            case '.' -> KeyCode.PERIOD;
+            case '/' -> KeyCode.SLASH;
+            case ';' -> KeyCode.SEMICOLON;
+            case '=' -> KeyCode.EQUALS;
+            case '-' -> KeyCode.MINUS;
+            case '[' -> KeyCode.OPEN_BRACKET;
+            case ']' -> KeyCode.CLOSE_BRACKET;
+            case '\\' -> KeyCode.BACK_SLASH;
+            case '\'' -> KeyCode.QUOTE;
+            case '`' -> KeyCode.BACK_QUOTE;
+            default -> KeyCode.UNDEFINED;
+        };
+    }
+
+    /** A {@link KeyCode} by enum name (F5, HOME, PAGE_UP) or display name ("Page Up"). */
+    private static KeyCode namedKeyCode(String name, String keys) {
+        try {
+            return KeyCode.valueOf(name.toUpperCase().replace(' ', '_'));
+        } catch (IllegalArgumentException e) {
+            KeyCode byDisplayName = KeyCode.getKeyCode(name);
+            if (byDisplayName != null) {
+                return byDisplayName;
+            }
+            throw new IllegalArgumentException("Unknown key \"" + name + "\" in \"" + keys
+                + "\". Use names such as ENTER, TAB, ESCAPE, F5, HOME, PAGE_DOWN, a single character, "
+                + "and modifiers CTRL, SHIFT, ALT, META, SHORTCUT joined with '+'");
+        }
+    }
+
+    private static boolean isMac() {
+        return System.getProperty("os.name", "").toLowerCase().contains("mac");
     }
 
     @Override
@@ -1396,12 +1531,19 @@ public class JavaFxToolkit extends AbstractUiToolkit {
     public Object closeWindow(Map<String, Object> p) throws Exception {
         return action(() -> {
             Window w = targetWindow(p);
-            if (w instanceof Stage s) {
-                s.close();
-                return "Closed " + FxScene.titleOf(w);
+            if (w == null) {
+                throw new IllegalStateException("No JavaFX window");
             }
-            w.hide();
-            return "Hid " + FxScene.titleOf(w);
+            // Exactly what the window manager's close button does: fire
+            // WINDOW_CLOSE_REQUEST, and the window hides itself unless a handler
+            // consumes it. Stage.close() would skip onCloseRequest altogether, so
+            // a "save changes?" prompt or a veto would never run. A handler that
+            // calls showAndWait keeps this action open, giving a pending result.
+            Event.fireEvent(w, new WindowEvent(w, WindowEvent.WINDOW_CLOSE_REQUEST));
+            if (w.isShowing()) {
+                return "Close of " + FxScene.titleOf(w) + " was vetoed by the application; the window is still open";
+            }
+            return "Closed " + FxScene.titleOf(w);
         });
     }
 
