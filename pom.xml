@@ -21,7 +21,10 @@
         <maven.compiler.release>${java.version}</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring-boot.version>4.1.2</spring-boot.version>
-        <spring-ai.version>2.0.2</spring-ai.version>
+        <!-- 2.0.1 and 2.0.2 print a tool error's message twice (message + root cause
+             message, which is the exception itself when it has no cause); see
+             ServerRoundTripIT.toolErrorText before upgrading. -->
+        <spring-ai.version>2.0.0</spring-ai.version>
         <lombok.version>1.18.48</lombok.version>
         <javafx.version>21.0.13</javafx.version>
         <surefire.version>3.6.1</surefire.version>

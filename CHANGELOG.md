@@ -8,10 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- Dependencies: Spring Boot 4.1.2, Spring AI 2.0.2, Lombok 1.18.48, JavaFX 21.0.13. Jackson,
+- Dependencies: Spring Boot 4.1.2, Lombok 1.18.48, JavaFX 21.0.13. Jackson,
   JUnit and Mockito versions now come from the Spring Boot BOM; the agent jar previously
   shaded `jackson-databind` 2.18 with `jackson-core` 2.21. Maven plugin versions are all
-  pinned, and the CI actions are updated.
+  pinned, and the CI actions are updated. Spring AI stays at 2.0.0: 2.0.1 and 2.0.2 print every
+  tool error message twice.
 - `take_screenshot` renders the component into an image on the Event Dispatch Thread by
   default (`mode: PAINT`) instead of copying its screen region. Windows or notifications
   covering the application no longer end up in the image, background windows and
