@@ -1,5 +1,6 @@
 package solutions.crosstech.swingmcp.server.session;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import solutions.crosstech.swingmcp.common.command.CommandRequest;
 import solutions.crosstech.swingmcp.common.command.CommandResponse;
@@ -38,6 +39,7 @@ public class AgentConnection implements Closeable {
     private static final Logger LOG = LoggerFactory.getLogger(AgentConnection.class);
     private static final int CONNECT_TIMEOUT_MS = 5000;
     private static final int MAX_ABANDONED_TRACKED = 100;
+    private static final long SHUTDOWN_TIMEOUT_MS = 2000;
 
     private final Socket socket;
     private final BufferedReader reader;
@@ -48,6 +50,13 @@ public class AgentConnection implements Closeable {
 
     /** Request ids that timed out; their late responses are silently dropped. */
     private final Set<String> abandonedRequests = new LinkedHashSet<>();
+
+    /**
+     * Set when a read timed out, possibly partway through a response line: the
+     * first line read afterwards may be that line's tail, which is skipped if
+     * it does not parse instead of failing the next command.
+     */
+    private boolean partialLineLost;
 
     private AgentConnection(Socket socket, long readTimeoutMs, String token) throws IOException {
         this.socket = socket;
@@ -78,7 +87,7 @@ public class AgentConnection implements Closeable {
     public static AgentConnection connect(int port, long readTimeoutMs, String token) throws IOException {
         Socket socket = new Socket();
         socket.connect(new InetSocketAddress(InetAddress.getLoopbackAddress(), port), CONNECT_TIMEOUT_MS);
-        socket.setSoTimeout((int) readTimeoutMs);
+        socket.setSoTimeout((int) Math.min(readTimeoutMs, Integer.MAX_VALUE));
         return new AgentConnection(socket, readTimeoutMs, token);
     }
 
@@ -89,30 +98,67 @@ public class AgentConnection implements Closeable {
      *
      * @throws AgentCommandException if the agent reports an error or the transport fails
      */
-    public synchronized Object send(CommandType type, Map<String, Object> params) {
+    public Object send(CommandType type, Map<String, Object> params) {
+        return send(type, params, 0);
+    }
+
+    /**
+     * Like {@link #send(CommandType, Map)}, but waits at least
+     * {@code minReadTimeoutMs} for the response — for commands such as
+     * {@code WAIT_FOR} that legitimately run longer than the configured
+     * read timeout.
+     */
+    public Object send(CommandType type, Map<String, Object> params, long minReadTimeoutMs) {
+        return sendWithin(type, params, Math.max(readTimeoutMs, minReadTimeoutMs));
+    }
+
+    /**
+     * Asks the agent to stop its socket server (the target JVM keeps running),
+     * waiting only briefly: an agent too old to know {@code SHUTDOWN} answers
+     * with an uncorrelated parse error, which must not stall a disconnect.
+     */
+    public void requestShutdown() {
+        sendWithin(CommandType.SHUTDOWN, Map.of(), Math.min(readTimeoutMs, SHUTDOWN_TIMEOUT_MS));
+    }
+
+    private synchronized Object sendWithin(CommandType type, Map<String, Object> params, long timeoutMs) {
         String requestId = UUID.randomUUID().toString();
         try {
             String json = mapper.writeValueAsString(new CommandRequest(requestId, type, params, token));
             writer.println(json);
-            long deadline = System.currentTimeMillis() + readTimeoutMs;
+            long deadline = System.currentTimeMillis() + timeoutMs;
             while (true) {
                 long remaining = deadline - System.currentTimeMillis();
                 if (remaining <= 0) {
-                    throw timeout(type, requestId);
+                    throw timeout(type, requestId, timeoutMs);
                 }
-                socket.setSoTimeout((int) remaining);
+                socket.setSoTimeout((int) Math.min(remaining, Integer.MAX_VALUE));
                 String line;
                 try {
                     line = reader.readLine();
                 } catch (SocketTimeoutException e) {
-                    throw timeout(type, requestId);
+                    // readLine may have consumed part of a line, which is lost;
+                    // the next read then starts with its remainder.
+                    partialLineLost = true;
+                    throw timeout(type, requestId, timeoutMs);
                 }
                 if (line == null) {
                     throw new AgentCommandException("The target application has exited or closed the agent"
                         + " connection while handling " + type + ". This session is no longer usable —"
                         + " relaunch with launch_app or reattach with attach_to_app.");
                 }
-                CommandResponse response = mapper.readValue(line, CommandResponse.class);
+                CommandResponse response;
+                try {
+                    response = mapper.readValue(line, CommandResponse.class);
+                } catch (JsonProcessingException e) {
+                    if (!partialLineLost) {
+                        throw e;
+                    }
+                    partialLineLost = false;
+                    LOG.debug("Discarded the remainder of a response line cut off by an earlier timeout");
+                    continue;
+                }
+                partialLineLost = false;
                 if (!requestId.equals(response.requestId())) {
                     if (abandonedRequests.remove(response.requestId())) {
                         LOG.debug("Discarded late response of abandoned request {} while waiting for {}",
@@ -133,9 +179,9 @@ public class AgentConnection implements Closeable {
         }
     }
 
-    private AgentCommandException timeout(CommandType type, String requestId) {
+    private AgentCommandException timeout(CommandType type, String requestId, long timeoutMs) {
         rememberAbandoned(requestId);
-        return new AgentCommandException("Agent command " + type + " timed out after " + readTimeoutMs
+        return new AgentCommandException("Agent command " + type + " timed out after " + timeoutMs
             + " ms. If the last action opened a modal dialog, use list_dialogs and handle_dialog to dismiss it; "
             + "the session remains usable.");
     }

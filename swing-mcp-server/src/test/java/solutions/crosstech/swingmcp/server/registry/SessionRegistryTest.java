@@ -112,4 +112,30 @@ class SessionRegistryTest {
         SessionRegistry registry = new SessionRegistry();
         assertThrows(NoActiveSessionException.class, () -> registry.select("missing"));
     }
+
+    @Test
+    void unknownSessionIdIsNamedWithTheActiveSessions() throws Exception {
+        try (FakeAgentServer server = FakeAgentServer.echoing()) {
+            SessionRegistry registry = new SessionRegistry();
+            registry.register("app-b", new AttachedAppSession(ProcessHandle.current().pid(),
+                AgentConnection.connect(server.port(), 5000), server.port()));
+            registry.register("app-a", new AttachedAppSession(ProcessHandle.current().pid(),
+                AgentConnection.connect(server.port(), 5000), server.port()));
+
+            NoActiveSessionException e = assertThrows(NoActiveSessionException.class,
+                () -> registry.require("typo"));
+            assertEquals("Unknown session id 'typo'. Active sessions: [app-a, app-b]. "
+                + "Use list_sessions to see them.", e.getMessage());
+            e = assertThrows(NoActiveSessionException.class, () -> registry.select("typo"));
+            assertTrue(e.getMessage().contains("[app-a, app-b]"), e.getMessage());
+            registry.clear();
+        }
+    }
+
+    @Test
+    void unknownSessionIdWithNoSessionsSaysSo() {
+        NoActiveSessionException e = assertThrows(NoActiveSessionException.class,
+            () -> new SessionRegistry().require("typo"));
+        assertTrue(e.getMessage().startsWith("Unknown session id 'typo'. There are no sessions"), e.getMessage());
+    }
 }

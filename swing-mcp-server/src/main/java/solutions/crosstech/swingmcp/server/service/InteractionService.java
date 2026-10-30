@@ -76,7 +76,7 @@ public class InteractionService {
 
     /** Gives keyboard focus to a component. */
     public Object focus(String uid) {
-        return registry.require().send(CommandType.FOCUS, Map.of("uid", uid));
+        return registry.require().send(CommandType.FOCUS, Map.of("uid", Params.require("uid", uid)));
     }
 
     /** Types text character-by-character using key events. */
@@ -87,7 +87,7 @@ public class InteractionService {
     /** Types text character-by-character, as key events or, with {@code robot}, OS-level keystrokes. */
     public Object typeText(String text, String uid, Boolean robot) {
         Map<String, Object> params = new HashMap<>();
-        params.put("text", text);
+        params.put("text", Params.require("text", text));
         if (uid != null && !uid.isBlank()) {
             params.put("uid", uid);
         }
@@ -99,12 +99,14 @@ public class InteractionService {
 
     /** Opens the context menu of a component and clicks an item by path. */
     public Object selectContextMenuItem(String uid, String path) {
-        return registry.require().send(CommandType.SELECT_CONTEXT_MENU_ITEM, Map.of("uid", uid, "path", path));
+        return registry.require().send(CommandType.SELECT_CONTEXT_MENU_ITEM,
+            Map.of("uid", Params.require("uid", uid), "path", Params.require("path", path)));
     }
 
     /** Fills a text component, spinner, or editable combo box. */
     public Object fill(String uid, String text) {
-        return registry.require().send(CommandType.FILL, Map.of("uid", uid, "text", text));
+        return registry.require().send(CommandType.FILL,
+            Map.of("uid", Params.require("uid", uid), "text", Params.require("text", text)));
     }
 
     /** Selects an option in a list, combo box, or tabbed pane by index or text. */
@@ -122,7 +124,8 @@ public class InteractionService {
 
     /** Selects a tree node by path, e.g. "Root > Folder > Leaf". */
     public Object selectTreeNode(String uid, String path) {
-        return registry.require().send(CommandType.SELECT_TREE_NODE, Map.of("uid", uid, "path", path));
+        return registry.require().send(CommandType.SELECT_TREE_NODE,
+            Map.of("uid", Params.require("uid", uid), "path", Params.require("path", path)));
     }
 
     /** Selects a table cell by row and column. */
@@ -158,7 +161,7 @@ public class InteractionService {
 
     /** Selects a menu item by path, e.g. "File > Save". */
     public Object selectMenuItem(String path) {
-        return registry.require().send(CommandType.SELECT_MENU_ITEM, Map.of("path", path));
+        return registry.require().send(CommandType.SELECT_MENU_ITEM, Map.of("path", Params.require("path", path)));
     }
 
     /** Presses a key chord, e.g. "CTRL+S" or "ENTER". */
@@ -172,7 +175,7 @@ public class InteractionService {
      */
     public Object pressKey(String keys, String uid, Boolean robot) {
         Map<String, Object> params = new HashMap<>();
-        params.put("keys", keys);
+        params.put("keys", Params.require("keys", keys));
         if (uid != null && !uid.isBlank()) {
             params.put("uid", uid);
         }

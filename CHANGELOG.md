@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- Dependencies: Spring Boot 4.1.2, Lombok 1.18.48, JavaFX 21.0.13. Jackson,
+  JUnit and Mockito versions now come from the Spring Boot BOM; the agent jar previously
+  shaded `jackson-databind` 2.18 with `jackson-core` 2.21. Maven plugin versions are all
+  pinned, and the CI actions are updated. Spring AI stays at 2.0.0: 2.0.1 and 2.0.2 print every
+  tool error message twice.
 - `take_screenshot` renders the component into an image on the Event Dispatch Thread by
   default (`mode: PAINT`) instead of copying its screen region. Windows or notifications
   covering the application no longer end up in the image, background windows and
@@ -45,6 +50,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Swing one, instead of 1.
 
 ### Fixed
+- Swing `select_option` on a combo box of enums or other objects reported "Option selected"
+  while nothing changed, because the text was passed to `setSelectedItem` as a `String`.
+  Items now match by their text or rendered text and the model element is selected; no
+  match or an index out of range is an error instead of a false success. Icon-only tabs,
+  menus and menu items (no text) no longer cause a `NullPointerException`.
+- Swing `close_window` on a window whose close listener asks for confirmation hung 20 s and
+  then reported an unresponsive Event Dispatch Thread. It now returns a pending result
+  listing the dialog. `fill`, `focus`, `select_option`, `select_table_cell`,
+  `select_tree_node`, `hover` and `drag` return early the same way (text starting with
+  `Pending:`) when a listener opens a modal dialog, and EDT waits that had no limit are
+  capped.
+- Swing `handle_dialog` used the oldest open dialog, so a non-modal palette opened at
+  startup hid an open message box ("Button not found"), and with nested dialogs the outer
+  one was answered. It now targets the active, topmost modal dialog.
+- Swing `select_context_menu_item` left the popup on screen while the dialog opened by the
+  item was showing; the popup is closed first, as for `select_menu_item`.
+- The Swing agent kept every component it had given a uid reachable for the life of the
+  connection, so disposed windows were never garbage-collected; it also updated its uid map
+  from several threads without a lock. The registry is now weak and synchronized, and
+  `wait_for` reads components on the Event Dispatch Thread.
+- A `robot: true` key chord that failed part-way left modifier keys pressed for the whole
+  desktop; keys already pressed are now released.
+- JavaFX `get_table_data` and `get_list_items` treated `endRow`/`endIndex` as exclusive, so
+  every range came back one row short (`startRow: 0, endRow: 0` returned nothing). They are
+  inclusive, as documented and as on Swing.
+- JavaFX `select_tree_node` split the path on `/` instead of ` > `, so no multi-level path
+  could be selected through the tool.
+- JavaFX `close_window` called `Stage.close()`, which skips the window's close-request
+  handlers: "save changes?" prompts and vetoes never ran, and closing the last window quit
+  the application. It now fires the close request like a real close; a handler that opens
+  a dialog gives a pending result, and a vetoed close is reported.
+- JavaFX uids became permanently unknown after a node was detached and attached again
+  (a cached view swapped back into a layout). The old uid now resolves again, and menu
+  items no longer pin memory.
+- JavaFX `press_key` rejected names the tool documents (`SHORTCUT`, `ESC`, `RETURN`,
+  `PGUP`, `DEL`, single characters) and never sent the typed event, so a letter typed
+  nothing into a text field. It accepts the same names as Swing and types characters.
+- JavaFX `type_text` blocked when a key handler opened a modal dialog; it returns a pending
+  result instead.
+- JavaFX `handle_dialog` acted on the oldest open dialog; it now acts on the topmost one,
+  so with nested dialogs the inner one is answered.
+- A failed `launch_app` (agent never connected, or the application hung before the agent
+  started) left the application running with no session to stop it. The process tree is
+  now stopped and the temporary files removed. An agent that cannot bind a port reports
+  that at once instead of the server waiting 30 s.
+- `stop_app` stopped only the direct child, so a wrapper such as `xvfb-run java …` left the
+  JVM running. Processes started by the application are stopped too, and the captured
+  output file is deleted.
+- Each `attach_to_app` started another agent server in the target JVM and none was ever
+  stopped, so repeated attach/stop cycles used up the agent port range. Closing an attached
+  session now shuts the agent's listener down (new `SHUTDOWN` agent command); the
+  application keeps running.
+- `wait_for` with `timeoutMs` above the 30 s tool timeout always failed with a misleading
+  transport timeout. The read deadline now follows `timeoutMs`, and a zero or negative
+  `swing.mcp.tool-timeout-ms` is rejected at startup.
+- A response cut off by a read timeout made the next, unrelated command report a transport
+  failure although it ran. The leftover is now skipped.
+- An unknown session id was reported as "No active Swing application session"; the error
+  now names the id and lists the active sessions.
+- The process output shown when a launch fails was empty when the output was not valid
+  UTF-8 (a localized JVM error on Windows).
+- Services now reject a missing required parameter with its name instead of a bare
+  `NullPointerException`, and `PING` no longer scans the windows of every UI thread.
 - `take_screenshot` on a JavaFX window saved a broken file: the JavaFX toolkit returned the
   image under keys the server did not read (`base64`, `format`), so the server decoded the
   string `"null"`. It now returns `imageBase64` and `mimeType` like the Swing toolkit, and
@@ -52,8 +120,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `launch_app` inserted the `-javaagent` argument after the first token of the command, so a
   wrapper in front of `java` broke the launch (`env VAR=value java -jar app.jar` failed with
   `env: illegal option -- j`). The argument now goes right after the java launcher (`java`,
-  `javaw`, with or without a path or `.exe`), falling back to the old position when the
-  command has none ([#25](https://github.com/crosstech-solutions-bv/swing-mcp/issues/25)).
+  `javaw`, with or without a path or `.exe`). A command with no java launcher is now
+  rejected before anything is started; the argument used to be inserted after its first
+  token, which ran the command without the agent and then waited 30 s for it
+  ([#25](https://github.com/crosstech-solutions-bv/swing-mcp/issues/25)).
 - Components of anonymous classes (`new JTabbedPane() { ... }`) could not be found with
   `find_component` by `CLASS` and were reported with an empty `componentClass` in
   snapshots, because both relied on `Class.getSimpleName()`. Class matching now covers the

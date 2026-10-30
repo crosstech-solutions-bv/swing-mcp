@@ -87,6 +87,8 @@ structured data.
 | `endRow` | number | no | Zero-based last row (inclusive) |
 
 **Returns:** `rowCount`, `columns` (column names), and `rows` (cell values).
+On JavaFX, a call without `endRow` returns at most 200 rows from `startRow` and
+sets `truncated: true` when more rows follow.
 
 ## `get_list_items`
 

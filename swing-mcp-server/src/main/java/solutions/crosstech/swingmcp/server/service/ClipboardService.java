@@ -25,6 +25,6 @@ public class ClipboardService {
 
     /** Writes text to the target JVM's system clipboard. */
     public Object setClipboard(String text) {
-        return registry.require().send(CommandType.SET_CLIPBOARD, Map.of("text", text));
+        return registry.require().send(CommandType.SET_CLIPBOARD, Map.of("text", Params.require("text", text)));
     }
 }

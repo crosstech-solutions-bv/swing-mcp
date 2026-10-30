@@ -26,6 +26,12 @@ public sealed interface AppSession extends Closeable permits LaunchedAppSession,
      */
     Object send(CommandType type, Map<String, Object> params);
 
+    /**
+     * Sends a command that may legitimately run longer than the configured
+     * tool timeout, waiting at least {@code minReadTimeoutMs} for its response.
+     */
+    Object send(CommandType type, Map<String, Object> params, long minReadTimeoutMs);
+
     /** Returns true if the underlying target process/connection is still alive. */
     boolean isAlive();
 

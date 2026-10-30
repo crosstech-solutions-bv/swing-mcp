@@ -80,7 +80,7 @@ All previously planned capabilities have been implemented — see the
 Every tool carries an MCP `title` and the `readOnlyHint`, `destructiveHint`,
 `idempotentHint`, and `openWorldHint` annotations from the MCP spec. Three
 tools are marked destructive: `stop_app`, `close_window`, and
-`evaluate_java`. 12 tools are read-only — clients that honour these hints
+`evaluate_java`. 13 tools are read-only — clients that honour these hints
 (Claude Desktop, VS Code, Cursor) can skip per-call approval for them.
 `openWorldHint` is `false` for every tool, since the server only ever touches
 the local JVM.

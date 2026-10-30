@@ -8,6 +8,7 @@ import java.awt.GraphicsEnvironment;
 import java.awt.Window;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
 
 /**
  * AWT/Swing implementation, delegating to the existing {@link ComponentScanner}.
@@ -133,9 +134,28 @@ public class SwingToolkit extends AbstractUiToolkit {
         return action(() -> scanner.click(p));
     }
 
+    /** Document and change listeners may open a modal dialog (validation), so fire-and-poll. */
     @Override
     public String fill(Map<String, Object> p) throws Exception {
-        return onUi(() -> scanner.fill(p));
+        return actionText(() -> scanner.fill(p));
+    }
+
+    /**
+     * {@link #action} for commands whose result is text: a pending result is
+     * reported as text too, so a listener that opens a modal dialog yields a
+     * prompt answer instead of a UI-thread timeout.
+     */
+    private String actionText(Callable<String> work) throws Exception {
+        Object result = action(work);
+        return result instanceof Map<?, ?> pending ? pendingText(pending) : (String) result;
+    }
+
+    private static String pendingText(Map<?, ?> pending) {
+        StringBuilder text = new StringBuilder("Pending: ").append(pending.get("note"));
+        if (pending.get("dialogs") instanceof List<?> dialogs && !dialogs.isEmpty()) {
+            text.append(" Open dialogs: ").append(dialogs);
+        }
+        return text.toString();
     }
 
     /**
@@ -156,29 +176,38 @@ public class SwingToolkit extends AbstractUiToolkit {
         return Boolean.parseBoolean(String.valueOf(p.get("robot")));
     }
 
+    /** Focus listeners may open a modal dialog (validation on focus change), so fire-and-poll. */
     @Override
     public String focus(Map<String, Object> p) throws Exception {
-        return onUi(() -> scanner.focus(p));
+        return actionText(() -> scanner.focus(p));
     }
 
+    /**
+     * Mouse-entered handlers may open a modal dialog, so event-based hovering is
+     * fire-and-poll. Robot hovering stays synchronous, like robot typing.
+     */
     @Override
     public String hover(Map<String, Object> p) throws Exception {
-        return scanner.hover(p);
+        if (robot(p)) {
+            return scanner.hover(p);
+        }
+        return actionText(() -> scanner.hover(p));
     }
 
+    /** Selection listeners may open a modal dialog, so the selection commands are fire-and-poll. */
     @Override
     public String selectOption(Map<String, Object> p) throws Exception {
-        return onUi(() -> scanner.selectOption(p));
+        return actionText(() -> scanner.selectOption(p));
     }
 
     @Override
     public String selectTreeNode(Map<String, Object> p) throws Exception {
-        return onUi(() -> scanner.selectTreeNode(p));
+        return actionText(() -> scanner.selectTreeNode(p));
     }
 
     @Override
     public String selectTableCell(Map<String, Object> p) throws Exception {
-        return onUi(() -> scanner.selectTableCell(p));
+        return actionText(() -> scanner.selectTableCell(p));
     }
 
     @Override
@@ -205,9 +234,16 @@ public class SwingToolkit extends AbstractUiToolkit {
         return actionOffUi(() -> scanner.pressKey(p));
     }
 
+    /**
+     * A drop handler may open a modal dialog, so event-based drags are
+     * fire-and-poll. Robot drags stay synchronous, like robot typing.
+     */
     @Override
     public String drag(Map<String, Object> p) throws Exception {
-        return scanner.drag(p);
+        if (robot(p)) {
+            return scanner.drag(p);
+        }
+        return actionText(() -> scanner.drag(p));
     }
 
     /** The application's wheel or scroll handlers may open a modal dialog, so fire-and-poll. */
@@ -222,6 +258,7 @@ public class SwingToolkit extends AbstractUiToolkit {
         return action(() -> scanner.mouseWheel(p));
     }
 
+    /** Polls from the command thread; each check runs on the EDT, bounded by the time left. */
     @Override
     public String waitFor(Map<String, Object> p) throws Exception {
         return scanner.waitFor(p);
@@ -249,9 +286,10 @@ public class SwingToolkit extends AbstractUiToolkit {
         return onUi(() -> scanner.setWindowState(p));
     }
 
+    /** Closing listeners may ask for confirmation in a modal dialog, so fire-and-poll. */
     @Override
     public Object closeWindow(Map<String, Object> p) throws Exception {
-        return onUi(() -> scanner.closeWindow(p));
+        return action(() -> scanner.closeWindow(p));
     }
 
     // ---- misc -------------------------------------------------------------
