@@ -36,5 +36,7 @@ public enum CommandType {
     MOUSE_WHEEL,
     WAIT_FOR,
     EVALUATE_JAVA,
-    PING
+    PING,
+    /** Stops the agent's socket server (not the target JVM); sent when an attached session closes. */
+    SHUTDOWN
 }

@@ -51,7 +51,15 @@ public class AgentServer {
      * @throws IOException if no port in the range can be bound
      */
     public void start() throws IOException {
-        serverSocket = bindToFreePort();
+        try {
+            serverSocket = bindToFreePort();
+        } catch (IOException e) {
+            // Tell the waiting MCP server right away instead of letting it time out.
+            if (config.responseFile() != null) {
+                writeErrorToFile(config.responseFile(), e.getMessage());
+            }
+            throw e;
+        }
         port = serverSocket.getLocalPort();
         running = true;
 
@@ -61,6 +69,28 @@ public class AgentServer {
 
         ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
         executor.submit(this::acceptLoop);
+    }
+
+    /**
+     * Stops accepting connections and frees the port. The target JVM keeps
+     * running; this is how an attached session releases the agent it loaded.
+     */
+    public void stop() {
+        running = false;
+        ServerSocket socket = serverSocket;
+        if (socket != null) {
+            try {
+                socket.close();
+            } catch (IOException e) {
+                LOG.log(Level.FINE, "Failed to close agent server socket", e);
+            }
+        }
+        LOG.info("Swing MCP Agent on port " + port + " stopped");
+    }
+
+    /** Returns true until {@link #stop()} is called. */
+    public boolean isRunning() {
+        return running;
     }
 
     /**
@@ -99,6 +129,22 @@ public class AgentServer {
         }
     }
 
+    /**
+     * Reports a startup failure as a single {@code ERROR <message>} line. The
+     * handshake's first line is otherwise always the numeric port, so a server
+     * that does not know this line simply keeps waiting as before.
+     */
+    private void writeErrorToFile(String responseFile, String message) {
+        Path path = Path.of(responseFile);
+        try {
+            String text = message == null ? "agent failed to start" : message.replaceAll("\\R", " ");
+            Files.writeString(path, "ERROR " + text + System.lineSeparator(), StandardCharsets.UTF_8);
+            restrictToOwner(path);
+        } catch (IOException e) {
+            LOG.log(Level.WARNING, "Failed to write error to response file: " + responseFile, e);
+        }
+    }
+
     private void restrictToOwner(Path path) {
         try {
             Set<PosixFilePermission> ownerOnly =
@@ -126,6 +172,7 @@ public class AgentServer {
                 }
             }
         }
+        clientExecutor.shutdown();
     }
 
     /**
@@ -141,7 +188,7 @@ public class AgentServer {
         Object writeLock = new Object();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(client.getInputStream(), StandardCharsets.UTF_8));
              PrintWriter writer = new PrintWriter(new java.io.OutputStreamWriter(client.getOutputStream(), StandardCharsets.UTF_8), true)) {
-            CommandHandler handler = new CommandHandler(codec, config.evaluateEnabled(), token);
+            CommandHandler handler = new CommandHandler(codec, config.evaluateEnabled(), token, this::stop);
             String line;
             while ((line = reader.readLine()) != null) {
                 String command = line;
