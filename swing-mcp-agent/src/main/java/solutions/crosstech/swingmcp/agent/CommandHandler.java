@@ -34,6 +34,7 @@ public class CommandHandler {
     private final ToolkitRegistry toolkits;
     private final boolean evaluateEnabled;
     private final String expectedToken;
+    private final Runnable onShutdown;
 
     /** Test/embedding constructor: no auth token, evaluate_java disabled. */
     public CommandHandler(JsonCodec codec) {
@@ -48,16 +49,30 @@ public class CommandHandler {
      *                        must carry a matching token or it is rejected
      */
     public CommandHandler(JsonCodec codec, boolean evaluateEnabled, String expectedToken) {
-        this(codec, evaluateEnabled, expectedToken, new ToolkitRegistry());
+        this(codec, evaluateEnabled, expectedToken, (Runnable) null);
+    }
+
+    /**
+     * @param onShutdown run on {@code SHUTDOWN}: stops the agent's socket server
+     *                   (never the target JVM); null makes {@code SHUTDOWN} a no-op
+     */
+    public CommandHandler(JsonCodec codec, boolean evaluateEnabled, String expectedToken, Runnable onShutdown) {
+        this(codec, evaluateEnabled, expectedToken, new ToolkitRegistry(), onShutdown);
     }
 
     /** Test seam: inject a registry with stub toolkits. */
     CommandHandler(JsonCodec codec, boolean evaluateEnabled, String expectedToken,
                    ToolkitRegistry toolkits) {
+        this(codec, evaluateEnabled, expectedToken, toolkits, null);
+    }
+
+    CommandHandler(JsonCodec codec, boolean evaluateEnabled, String expectedToken,
+                   ToolkitRegistry toolkits, Runnable onShutdown) {
         this.codec = codec;
         this.evaluateEnabled = evaluateEnabled;
         this.expectedToken = expectedToken;
         this.toolkits = toolkits;
+        this.onShutdown = onShutdown;
     }
 
     /** The toolkits discovered in this JVM; used by the agent for its banner. */
@@ -153,13 +168,27 @@ public class CommandHandler {
 
     private Object dispatch(CommandRequest request) throws Exception {
         Map<String, Object> p = request.params();
+        // Toolkit-independent commands first: resolving a toolkit can scan every
+        // UI thread's windows, and fails for a uid no toolkit issued.
+        switch (request.type()) {
+            case PING:
+                return "pong";
+            case LIST_WINDOWS:
+                return toolkits.listAllWindows();
+            case SHUTDOWN:
+                if (onShutdown != null) {
+                    onShutdown.run();
+                }
+                return "stopped";
+            default:
+                break;
+        }
         UiToolkit t = toolkits.forParams(p);
         return switch (request.type()) {
-            case PING -> "pong";
+            case PING, LIST_WINDOWS, SHUTDOWN -> throw new IllegalStateException("handled above");
 
             // Scene inspection
             case TAKE_SNAPSHOT -> t.takeSnapshot(p);
-            case LIST_WINDOWS -> toolkits.listAllWindows();
             case GET_COMPONENT_DETAILS -> t.getComponentDetails(p);
             case FIND_COMPONENT -> t.findComponent(p);
             case GET_TABLE_DATA -> t.getTableData(p);

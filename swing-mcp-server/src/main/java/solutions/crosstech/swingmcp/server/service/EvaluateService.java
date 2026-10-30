@@ -31,6 +31,6 @@ public class EvaluateService {
             throw new IllegalStateException(
                 "evaluate_java is disabled. Enable it with swing.mcp.evaluate.enabled=true.");
         }
-        return registry.require().send(CommandType.EVALUATE_JAVA, Map.of("code", code));
+        return registry.require().send(CommandType.EVALUATE_JAVA, Map.of("code", Params.require("code", code)));
     }
 }

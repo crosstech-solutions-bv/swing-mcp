@@ -77,37 +77,62 @@ public class ApplicationService {
     public Map<String, Object> launch(String command, String workingDir, String sessionId,
                                       Map<String, String> env) {
         Path agentJar = requireAgentJar();
+        List<String> args = new ArrayList<>(tokenizeCommand(command == null ? "" : command));
+        if (args.isEmpty() || args.getFirst().isBlank()) {
+            throw new IllegalArgumentException("Launch command must not be empty");
+        }
+        int agentIndex = agentArgIndex(args);
+        Path portFile = null;
+        Path outputLog = null;
+        Process process = null;
+        boolean launched = false;
         try {
             // Created with owner-only permissions (0600 on POSIX; user-scoped temp
             // ACL on Windows). Keep this file in place (don’t delete/recreate it)
             // so the agent can write the port + auth token into a pre-secured file;
             // it is deleted after a successful read.
-            Path portFile = Files.createTempFile("swing-mcp-port", ".txt");
+            portFile = Files.createTempFile("swing-mcp-port", ".txt");
             portFile.toFile().deleteOnExit();
-
-            List<String> args = new ArrayList<>(tokenizeCommand(command));
-            if (args.isEmpty() || args.getFirst().isBlank()) {
-                throw new IllegalArgumentException("Launch command must not be empty");
-            }
-            args.add(agentArgIndex(args), buildAgentArg(agentJar, portFile));
+            args.add(agentIndex, buildAgentArg(agentJar, portFile));
 
             ProcessBuilder pb = processBuilder(args, workingDir, env);
-            Path outputLog = Files.createTempFile("swing-mcp-app", ".log");
+            outputLog = Files.createTempFile("swing-mcp-app", ".log");
             outputLog.toFile().deleteOnExit();
             pb.redirectErrorStream(true);
             pb.redirectOutput(outputLog.toFile());
-            Process process = pb.start();
+            process = pb.start();
 
             AgentHandshake handshake = awaitPortFile(portFile, process, outputLog);
             int port = handshake.port();
             AgentConnection connection =
                 AgentConnection.connect(port, properties.getToolTimeoutMs(), handshake.token());
             AppSession session = new LaunchedAppSession(process, connection, port, "Launched: " + command, outputLog);
+            launched = true; // the session owns the process and its output log from here on
             String id = registry.register(sessionId, session);
-            LOG.info("Launched application pid={} agentPort={} sessionId={}", process.pid(), port, id);
+            LOG.info("Launched application pid={} agentPort={} sessionId={}", session.info().pid(), port, id);
             return sessionInfoMap(id, session);
         } catch (IOException e) {
             throw new AgentCommandException("Failed to launch application: " + e.getMessage(), e);
+        } finally {
+            if (!launched) {
+                // Never handed to a session: don't leave an orphan JVM with a window,
+                // nor the handshake and log files behind.
+                if (process != null) {
+                    LaunchedAppSession.terminate(process.toHandle());
+                }
+                deleteQuietly(portFile);
+                deleteQuietly(outputLog);
+            }
+        }
+    }
+
+    private static void deleteQuietly(Path file) {
+        if (file != null) {
+            try {
+                Files.deleteIfExists(file);
+            } catch (IOException e) {
+                LOG.debug("Failed to delete {}", file, e);
+            }
         }
     }
 
@@ -378,7 +403,10 @@ public class ApplicationService {
      * Where the {@code -javaagent} argument goes: right after the java launcher
      * ({@code java}, {@code javaw}, with or without a path or {@code .exe}), so a
      * wrapper in front of it — {@code env VAR=value java -jar app.jar} — keeps
-     * working. Falls back to after the first token when there is no such launcher.
+     * working.
+     *
+     * @throws IllegalArgumentException when the command has no java launcher: the
+     *                                  agent can only be injected into a JVM
      */
     static int agentArgIndex(List<String> args) {
         for (int i = 0; i < args.size(); i++) {
@@ -389,7 +417,9 @@ public class ApplicationService {
                 return i + 1;
             }
         }
-        return 1;
+        throw new IllegalArgumentException("Launch command must run a Java launcher (java, java.exe, javaw "
+            + "or javaw.exe, optionally behind a wrapper such as env or xvfb-run), but none was found in: "
+            + String.join(" ", args));
     }
 
     /** Builds the process for the launch command, applying the working directory and extra environment. */
@@ -458,6 +488,12 @@ public class ApplicationService {
                 if (!content.isEmpty()) {
                     String[] lines = content.split("\\R", 2);
                     String portText = lines[0].strip();
+                    if (portText.startsWith("ERROR")) {
+                        // The agent could not start (e.g. no free port) and says why.
+                        Files.deleteIfExists(portFile);
+                        throw new IOException("Agent failed to start: "
+                            + portText.substring("ERROR".length()).strip() + outputTail(outputLog));
+                    }
                     String token = lines.length > 1 ? lines[1].strip() : "";
                     // Both lines are required: a port without a token means the agent
                     // is still writing (or is an incompatible version) — keep waiting
@@ -484,7 +520,7 @@ public class ApplicationService {
             return "";
         }
         try {
-            List<String> lines = Files.readAllLines(outputLog);
+            List<String> lines = new String(Files.readAllBytes(outputLog), nativeCharset()).lines().toList();
             if (lines.isEmpty()) {
                 return "";
             }

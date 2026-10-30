@@ -23,7 +23,8 @@ public class ApplicationTools {
         description = """
         Launch a Java desktop application (Swing or JavaFX) with the swing-mcp agent preloaded. \
         Provide the full java command line, e.g. "java -jar /path/to/app.jar"; JVM options go \
-        in the command, environment variables in env. \
+        in the command, environment variables in env. The command must run a java launcher \
+        (java or javaw), directly or behind a wrapper such as env, timeout or xvfb-run. \
         Returns session info including the target PID.""")
     public String launchApp(
             @McpToolParam(description = "Full java command line to launch the application") String command,

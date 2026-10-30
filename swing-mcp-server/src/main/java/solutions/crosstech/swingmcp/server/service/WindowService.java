@@ -54,7 +54,7 @@ public class WindowService {
 
     /** Changes the extended state of the active frame: MAXIMIZED, MINIMIZED, or NORMAL. */
     public Object setWindowState(String state) {
-        return registry.require().send(CommandType.SET_WINDOW_STATE, Map.of("state", state));
+        return registry.require().send(CommandType.SET_WINDOW_STATE, Map.of("state", Params.require("state", state)));
     }
 
     /** Closes the active window. */
