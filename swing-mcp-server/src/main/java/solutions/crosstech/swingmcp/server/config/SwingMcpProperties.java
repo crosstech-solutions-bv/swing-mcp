@@ -77,6 +77,12 @@ public class SwingMcpProperties {
     }
 
     public void setToolTimeoutMs(long toolTimeoutMs) {
+        // Used as a socket timeout: 0 would mean "wait forever" to the socket and
+        // "already expired" to the deadline check, so every command would time out.
+        if (toolTimeoutMs <= 0 || toolTimeoutMs > Integer.MAX_VALUE) {
+            throw new IllegalArgumentException("swing.mcp.tool-timeout-ms must be between 1 and "
+                + Integer.MAX_VALUE + " milliseconds, but was " + toolTimeoutMs);
+        }
         this.toolTimeoutMs = toolTimeoutMs;
     }
 

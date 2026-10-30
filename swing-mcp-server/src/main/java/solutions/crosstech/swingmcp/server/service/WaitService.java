@@ -13,6 +13,9 @@ import org.springframework.stereotype.Service;
 @Service
 public class WaitService {
 
+    /** Extra time the server waits beyond the agent-side timeout, for the round-trip itself. */
+    static final long WAIT_MARGIN_MS = 5000;
+
     private final SessionRegistry registry;
 
     public WaitService(SessionRegistry registry) {
@@ -29,7 +32,7 @@ public class WaitService {
      */
     public Object waitFor(String conditionType, String uid, String expectedValue, Long timeoutMs) {
         Map<String, Object> params = new HashMap<>();
-        params.put("conditionType", conditionType);
+        params.put("conditionType", Params.require("conditionType", conditionType));
         if (uid != null) {
             params.put("uid", uid);
         }
@@ -39,6 +42,8 @@ public class WaitService {
         if (timeoutMs != null) {
             params.put("timeoutMs", timeoutMs);
         }
-        return registry.require().send(CommandType.WAIT_FOR, params);
+        // The agent polls for up to timeoutMs, which may exceed the tool timeout.
+        long readTimeout = timeoutMs == null ? 0 : Math.max(0, timeoutMs) + WAIT_MARGIN_MS;
+        return registry.require().send(CommandType.WAIT_FOR, params, readTimeout);
     }
 }
