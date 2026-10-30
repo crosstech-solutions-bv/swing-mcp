@@ -49,6 +49,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Swing one, instead of 1.
 
 ### Fixed
+- Swing `select_option` on a combo box of enums or other objects reported "Option selected"
+  while nothing changed, because the text was passed to `setSelectedItem` as a `String`.
+  Items now match by their text or rendered text and the model element is selected; no
+  match or an index out of range is an error instead of a false success. Icon-only tabs,
+  menus and menu items (no text) no longer cause a `NullPointerException`.
+- Swing `close_window` on a window whose close listener asks for confirmation hung 20 s and
+  then reported an unresponsive Event Dispatch Thread. It now returns a pending result
+  listing the dialog. `fill`, `focus`, `select_option`, `select_table_cell`,
+  `select_tree_node`, `hover` and `drag` return early the same way (text starting with
+  `Pending:`) when a listener opens a modal dialog, and EDT waits that had no limit are
+  capped.
+- Swing `handle_dialog` used the oldest open dialog, so a non-modal palette opened at
+  startup hid an open message box ("Button not found"), and with nested dialogs the outer
+  one was answered. It now targets the active, topmost modal dialog.
+- Swing `select_context_menu_item` left the popup on screen while the dialog opened by the
+  item was showing; the popup is closed first, as for `select_menu_item`.
+- The Swing agent kept every component it had given a uid reachable for the life of the
+  connection, so disposed windows were never garbage-collected; it also updated its uid map
+  from several threads without a lock. The registry is now weak and synchronized, and
+  `wait_for` reads components on the Event Dispatch Thread.
+- A `robot: true` key chord that failed part-way left modifier keys pressed for the whole
+  desktop; keys already pressed are now released.
 - JavaFX `get_table_data` and `get_list_items` treated `endRow`/`endIndex` as exclusive, so
   every range came back one row short (`startRow: 0, endRow: 0` returned nothing). They are
   inclusive, as documented and as on Swing.
