@@ -28,13 +28,19 @@ import java.awt.event.WindowEvent;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.lang.ref.Reference;
+import java.lang.ref.ReferenceQueue;
+import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.WeakHashMap;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
@@ -44,6 +50,7 @@ import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
+import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
@@ -54,6 +61,7 @@ import javax.swing.JSpinner;
 import javax.swing.JTabbedPane;
 import javax.swing.JTable;
 import javax.swing.JTree;
+import javax.swing.ListCellRenderer;
 import javax.swing.MenuSelectionManager;
 import javax.swing.SwingUtilities;
 import javax.swing.text.JTextComponent;
@@ -62,15 +70,29 @@ import javax.swing.tree.TreePath;
 /**
  * Scans Swing component trees and performs interactions on behalf of the agent.
  * Maintains a UID registry mapping string UIDs to {@link Component} instances
- * via weak references so that garbage-collected components are automatically
- * removed.
+ * via weak references in both directions, so the registry never keeps a
+ * disposed window alive; the uid of a collected component is dropped and
+ * reported as unknown.
  */
 public class ComponentScanner {
 
+    /**
+     * Bounds every wait for the EDT made from a command thread, so a wedged EDT
+     * fails the command instead of hanging it forever.
+     */
+    static final long EDT_TIMEOUT_MS = 20_000;
+
     private final AtomicInteger uidCounter = new AtomicInteger(0);
-    private final ConcurrentHashMap<String, Component> uidToComponent = new ConcurrentHashMap<>();
+    /**
+     * Guards the uid registry. Commands run concurrently, some of them off the
+     * EDT, and {@link WeakHashMap} is not thread-safe.
+     */
+    private final Object uidLock = new Object();
+    private final Map<String, UidRef> uidToComponent = new HashMap<>();
     private final Map<Component, String> componentToUid = new WeakHashMap<>();
-    private Window activeWindow;
+    private final ReferenceQueue<Component> collectedUids = new ReferenceQueue<>();
+    /** Weak, so a selected window that is later disposed can still be collected. */
+    private volatile WeakReference<Window> activeWindow = new WeakReference<>(null);
     /** Component the last event-based hover entered; EDT only. Weak, so it cannot pin a closed window. */
     private java.lang.ref.WeakReference<Component> lastHovered = new java.lang.ref.WeakReference<>(null);
 
@@ -172,10 +194,11 @@ public class ComponentScanner {
         if (index < 0 || index >= visible.size()) {
             throw new IllegalArgumentException("Window index " + index + " out of range [0, " + (visible.size() - 1) + "]");
         }
-        activeWindow = visible.get(index);
-        activeWindow.toFront();
-        activeWindow.requestFocus();
-        return "Window selected: " + getWindowTitle(activeWindow);
+        Window selected = visible.get(index);
+        activeWindow = new WeakReference<>(selected);
+        selected.toFront();
+        selected.requestFocus();
+        return "Window selected: " + getWindowTitle(selected);
     }
 
     /**
@@ -317,7 +340,12 @@ public class ComponentScanner {
         java.awt.EventQueue queue = Toolkit.getDefaultToolkit().getSystemEventQueue();
         long deadline = System.currentTimeMillis() + 1000;
         do {
-            SwingUtilities.invokeAndWait(() -> { });
+            try {
+                invokeAndWaitQuietly(() -> null, deadline - System.currentTimeMillis());
+            } catch (EdtTimeoutException e) {
+                // Still busy: take the image anyway rather than stall the screenshot.
+                return;
+            }
         } while (queue.peekEvent() != null && System.currentTimeMillis() < deadline);
     }
 
@@ -511,48 +539,57 @@ public class ComponentScanner {
 
     /**
      * Selects an option in a JList, JComboBox, or JTabbedPane by index or text.
+     * Items match by {@code String.valueOf(item)} or by the text their renderer
+     * shows, so models of enums or domain objects work; the model's own element
+     * is then selected. No match, or an index out of range, is an error rather
+     * than a silent no-op.
      */
-    @SuppressWarnings("unchecked")
     public String selectOption(Map<String, Object> params) {
         String uid = getString(params, "uid");
         Component comp = resolveUid(uid);
         String text = (String) params.get("text");
         Integer index = params.containsKey("index") ? getInt(params, "index", 0) : null;
+        if (index == null && text == null) {
+            throw new IllegalArgumentException("Provide text or index");
+        }
 
         if (comp instanceof JComboBox<?> combo) {
             if (index != null) {
+                requireOptionIndex("item", index, combo.getItemCount(), uid);
                 combo.setSelectedIndex(index);
             } else {
-                ((JComboBox<Object>) combo).setSelectedItem(text);
+                int match = matchOption(combo.getModel(), combo.getRenderer(), new JList<>(), text);
+                if (match < 0) {
+                    throw new IllegalArgumentException("No combo box item matches \"" + text + "\" on " + uid
+                        + ". Available items: " + optionTexts(combo.getModel(), combo.getRenderer(), new JList<>())
+                        + (combo.isEditable() ? ". Use fill to enter free text into this editable combo box." : ""));
+                }
+                combo.setSelectedIndex(match);
             }
         } else if (comp instanceof JList<?> list) {
             if (index != null) {
+                requireOptionIndex("item", index, list.getModel().getSize(), uid);
                 list.setSelectedIndex(index);
             } else {
-                int match = -1;
-                List<String> available = new ArrayList<>();
-                for (int i = 0; i < list.getModel().getSize(); i++) {
-                    String item = String.valueOf(list.getModel().getElementAt(i));
-                    available.add(item);
-                    if (item.equals(text)) {
-                        match = i;
-                    }
-                }
+                int match = matchOption(list.getModel(), list.getCellRenderer(), list, text);
                 if (match < 0) {
                     throw new IllegalArgumentException("No list item matches \"" + text
-                        + "\" on " + uid + ". Available items: " + available);
+                        + "\" on " + uid + ". Available items: "
+                        + optionTexts(list.getModel(), list.getCellRenderer(), list));
                 }
                 list.setSelectedIndex(match);
             }
         } else if (comp instanceof JTabbedPane tabs) {
             if (index != null) {
+                requireOptionIndex("tab", index, tabs.getTabCount(), uid);
                 tabs.setSelectedIndex(index);
             } else {
                 int match = -1;
                 List<String> available = new ArrayList<>();
                 for (int i = 0; i < tabs.getTabCount(); i++) {
+                    // Icon-only tabs have no title.
                     available.add(tabs.getTitleAt(i));
-                    if (tabs.getTitleAt(i).equals(text)) {
+                    if (match < 0 && Objects.equals(tabs.getTitleAt(i), text)) {
                         match = i;
                     }
                 }
@@ -566,6 +603,57 @@ public class ComponentScanner {
             throw new IllegalArgumentException("Component " + uid + " does not support option selection: " + ClassNames.displayName(comp.getClass()));
         }
         return "Option selected on: " + uid;
+    }
+
+    private static void requireOptionIndex(String what, int index, int count, String uid) {
+        if (index < 0 || index >= count) {
+            throw new IllegalArgumentException(what + " index " + index + " is out of range on " + uid
+                + "; it has " + count + " " + what + "(s)");
+        }
+    }
+
+    /**
+     * The first element whose {@code String.valueOf} or rendered text equals
+     * {@code text}, or -1. Exact string matches win over rendered ones.
+     */
+    private static int matchOption(javax.swing.ListModel<?> model, ListCellRenderer<?> renderer,
+                                   JList<?> list, String text) {
+        for (int i = 0; i < model.getSize(); i++) {
+            if (String.valueOf(model.getElementAt(i)).equals(text)) {
+                return i;
+            }
+        }
+        for (int i = 0; i < model.getSize(); i++) {
+            if (Objects.equals(renderedText(renderer, list, model.getElementAt(i), i), text)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /** How each option reads for an error message: its rendered text, else its string value. */
+    private static List<String> optionTexts(javax.swing.ListModel<?> model, ListCellRenderer<?> renderer, JList<?> list) {
+        List<String> texts = new ArrayList<>();
+        for (int i = 0; i < model.getSize(); i++) {
+            String rendered = renderedText(renderer, list, model.getElementAt(i), i);
+            texts.add(rendered != null ? rendered : String.valueOf(model.getElementAt(i)));
+        }
+        return texts;
+    }
+
+    /** The text a label-based cell renderer shows for {@code value}, or null. */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static String renderedText(ListCellRenderer renderer, JList list, Object value, int index) {
+        if (renderer == null) {
+            return null;
+        }
+        try {
+            Component c = renderer.getListCellRendererComponent(list, value, index, false, false);
+            return c instanceof JLabel label ? label.getText() : null;
+        } catch (RuntimeException e) {
+            // A custom renderer that cannot cope with this list: fall back to the string value.
+            return null;
+        }
     }
 
     /**
@@ -693,13 +781,7 @@ public class ComponentScanner {
         List<Key> chord = parseKeyChord(keys);
         if (getBoolean(params, "robot", false)) {
             ensureForeground(invokeAndWaitQuietly(() -> windowOf(keyTarget(params))));
-            Robot robot = new Robot();
-            for (Key key : chord) {
-                robot.keyPress(key.code());
-            }
-            for (int i = chord.size() - 1; i >= 0; i--) {
-                robot.keyRelease(chord.get(i).code());
-            }
+            robotChord(new Robot(), chord.stream().map(Key::code).toList());
             return "Key pressed: " + keys;
         }
         Component target = invokeAndWaitQuietly(() -> keyTarget(params));
@@ -708,6 +790,25 @@ public class ComponentScanner {
             return null;
         });
         return "Key pressed: " + keys + " (sent to " + describeKeyTarget(target) + ")";
+    }
+
+    /**
+     * Presses the keys of a chord in order and releases them in reverse. Keys
+     * already pressed are released even if a later press fails, so a modifier
+     * is never left held down system-wide. Package-private for tests.
+     */
+    static void robotChord(Robot robot, List<Integer> codes) {
+        List<Integer> pressed = new ArrayList<>();
+        try {
+            for (int code : codes) {
+                robot.keyPress(code);
+                pressed.add(code);
+            }
+        } finally {
+            for (int i = pressed.size() - 1; i >= 0; i--) {
+                robot.keyRelease(pressed.get(i));
+            }
+        }
     }
 
     /** A key of a chord: its key code and the character it types, if any. */
@@ -1084,8 +1185,10 @@ public class ComponentScanner {
 
     /**
      * Waits for a condition with polling. Params: conditionType, uid, expectedValue, timeoutMs.
+     * Called off the EDT; each check reads the component tree on the EDT, bounded
+     * by the time left, so the wait never walks Swing state from another thread.
      */
-    public String waitFor(Map<String, Object> params) {
+    public String waitFor(Map<String, Object> params) throws Exception {
         String condType = getString(params, "conditionType");
         long timeoutMs = getLong(params, "timeoutMs", 5000L);
         long pollMs = 200L;
@@ -1093,8 +1196,7 @@ public class ComponentScanner {
 
         while (System.currentTimeMillis() < deadline) {
             try {
-                boolean met = checkCondition(condType, params);
-                if (met) {
+                if (checkConditionOnEdt(condType, params, deadline - System.currentTimeMillis())) {
                     return "Condition met: " + condType;
                 }
                 Thread.sleep(pollMs);
@@ -1104,6 +1206,19 @@ public class ComponentScanner {
             }
         }
         throw new RuntimeException("Timeout waiting for condition: " + condType + " after " + timeoutMs + "ms");
+    }
+
+    /** One poll of {@link #waitFor}: the EDT answering in time is the condition for EDT_IDLE. */
+    private boolean checkConditionOnEdt(String condType, Map<String, Object> params, long timeoutMs) throws Exception {
+        try {
+            if ("EDT_IDLE".equalsIgnoreCase(condType)) {
+                invokeAndWaitQuietly(() -> null, timeoutMs);
+                return true;
+            }
+            return Boolean.TRUE.equals(invokeAndWaitQuietly(() -> checkCondition(condType, params), timeoutMs));
+        } catch (EdtTimeoutException e) {
+            return false;
+        }
     }
 
     /**
@@ -1445,6 +1560,14 @@ public class ComponentScanner {
                     popup.setVisible(false);
                     throw new IllegalArgumentException("Context menu item not found: " + pathStr);
                 }
+                // As in selectMenuItem: hide the popups and clear the selection path
+                // BEFORE the click, so a modal dialog opened by the item does not
+                // leave the menu on screen while it blocks (Issue #1 Defect C, Issue #2).
+                for (int i = openedSubmenus.size() - 1; i >= 0; i--) {
+                    openedSubmenus.get(i).setPopupMenuVisible(false);
+                }
+                popup.setVisible(false);
+                MenuSelectionManager.defaultManager().clearSelectedPath();
                 item.doClick();
                 return "Context menu item clicked: " + pathStr;
             });
@@ -1603,10 +1726,30 @@ public class ComponentScanner {
             }
             return d;
         }
-        for (Window w : visible) {
-            if (w instanceof Dialog d) {
-                return d;
+        // The dialog the user would be answering: the active modal dialog, else the
+        // most recently created showing modal one (so the inner of nested modals),
+        // else the most recent showing dialog. A non-modal palette opened at startup
+        // must not shadow a JOptionPane opened later.
+        Dialog modal = null;
+        Dialog any = null;
+        for (int i = visible.size() - 1; i >= 0; i--) {
+            if (visible.get(i) instanceof Dialog d && d.isShowing()) {
+                if (d.isModal() && d.isActive()) {
+                    return d;
+                }
+                if (d.isModal() && modal == null) {
+                    modal = d;
+                }
+                if (any == null) {
+                    any = d;
+                }
             }
+        }
+        if (modal != null) {
+            return modal;
+        }
+        if (any != null) {
+            return any;
         }
         throw new IllegalStateException("No open dialog found");
     }
@@ -1723,22 +1866,49 @@ public class ComponentScanner {
     }
 
     private <T> T invokeAndWaitQuietly(EdtAction<T> action) throws Exception {
+        return invokeAndWaitQuietly(action, EDT_TIMEOUT_MS);
+    }
+
+    /**
+     * Runs {@code action} on the EDT and waits at most {@code timeoutMs} for it.
+     * An action that opens a modal dialog, or an EDT that is wedged, fails the
+     * caller with {@link EdtTimeoutException} instead of blocking it indefinitely.
+     */
+    private <T> T invokeAndWaitQuietly(EdtAction<T> action, long timeoutMs) throws Exception {
         if (SwingUtilities.isEventDispatchThread()) {
             return action.run();
         }
         AtomicReference<T> result = new AtomicReference<>();
-        AtomicReference<Exception> error = new AtomicReference<>();
-        SwingUtilities.invokeAndWait(() -> {
+        AtomicReference<Throwable> error = new AtomicReference<>();
+        CountDownLatch done = new CountDownLatch(1);
+        SwingUtilities.invokeLater(() -> {
             try {
                 result.set(action.run());
-            } catch (Exception e) {
-                error.set(e);
+            } catch (Throwable t) {
+                error.set(t);
+            } finally {
+                done.countDown();
             }
         });
-        if (error.get() != null) {
-            throw error.get();
+        if (!done.await(Math.max(1, timeoutMs), TimeUnit.MILLISECONDS)) {
+            throw new EdtTimeoutException(timeoutMs);
+        }
+        Throwable t = error.get();
+        if (t instanceof Exception e) {
+            throw e;
+        }
+        if (t instanceof Error e) {
+            throw e;
         }
         return result.get();
+    }
+
+    /** The EDT did not run a posted action in time: it is busy, wedged, or held by a modal dialog. */
+    static final class EdtTimeoutException extends IllegalStateException {
+        EdtTimeoutException(long timeoutMs) {
+            super("The Event Dispatch Thread did not respond within " + timeoutMs
+                + " ms. The application UI may be blocked or busy, or a modal dialog may be open.");
+        }
     }
 
     private List<ComponentDescriptor> scanComponent(Component comp, ComponentStateFilter filter,
@@ -1813,20 +1983,57 @@ public class ComponentScanner {
         return comp.isVisible();
     }
 
-    private String assignUid(Component comp) {
-        return componentToUid.computeIfAbsent(comp, c -> {
-            String uid = "comp-" + uidCounter.incrementAndGet();
-            uidToComponent.put(uid, c);
-            return uid;
-        });
+    /** A registry entry: weak, and remembers its uid so a collected entry can be dropped. */
+    private static final class UidRef extends WeakReference<Component> {
+        private final String uid;
+
+        UidRef(Component comp, String uid, ReferenceQueue<Component> queue) {
+            super(comp, queue);
+            this.uid = uid;
+        }
     }
 
-    private Component resolveUid(String uid) {
-        Component comp = uidToComponent.get(uid);
+    /** Package-private for tests. */
+    String assignUid(Component comp) {
+        synchronized (uidLock) {
+            purgeCollectedUids();
+            String uid = componentToUid.get(comp);
+            if (uid == null) {
+                uid = "comp-" + uidCounter.incrementAndGet();
+                componentToUid.put(comp, uid);
+                uidToComponent.put(uid, new UidRef(comp, uid, collectedUids));
+            }
+            return uid;
+        }
+    }
+
+    /** Package-private for tests. */
+    Component resolveUid(String uid) {
+        Component comp;
+        synchronized (uidLock) {
+            purgeCollectedUids();
+            UidRef ref = uid == null ? null : uidToComponent.get(uid);
+            comp = ref == null ? null : ref.get();
+        }
         if (comp == null) {
             throw new IllegalArgumentException("Unknown component UID: " + uid + ". Please take a fresh snapshot.");
         }
         return comp;
+    }
+
+    /** Number of live uid entries; package-private for tests. */
+    int registeredUidCount() {
+        synchronized (uidLock) {
+            purgeCollectedUids();
+            return uidToComponent.size();
+        }
+    }
+
+    /** Drops the entries of collected components. Caller holds {@link #uidLock}. */
+    private void purgeCollectedUids() {
+        for (Reference<? extends Component> ref = collectedUids.poll(); ref != null; ref = collectedUids.poll()) {
+            uidToComponent.remove(((UidRef) ref).uid, ref);
+        }
     }
 
     private String extractText(Component comp) {
@@ -1925,8 +2132,9 @@ public class ComponentScanner {
             }
             return visible.get(idx);
         }
-        if (activeWindow != null && activeWindow.isVisible()) {
-            return activeWindow;
+        Window active = activeWindow.get();
+        if (active != null && active.isVisible()) {
+            return active;
         }
         List<Window> visible = getVisibleWindows();
         return visible.isEmpty() ? null : visible.get(0);
@@ -1981,7 +2189,7 @@ public class ComponentScanner {
         if (comp instanceof javax.swing.JMenuBar menuBar) {
             for (int i = 0; i < menuBar.getMenuCount(); i++) {
                 javax.swing.JMenu menu = menuBar.getMenu(i);
-                if (menu != null && menu.getText().equals(path[0])) {
+                if (menu != null && path[0].equals(menu.getText())) {
                     if (path.length == 1 && menu instanceof JMenuItem mi) {
                         return mi;
                     }
@@ -2013,7 +2221,8 @@ public class ComponentScanner {
             if (item == null) {
                 continue;
             }
-            if (item.getText().equals(path[0])) {
+            // Icon-only items have no text.
+            if (path[0].equals(item.getText())) {
                 if (path.length == 1) {
                     return item;
                 }
@@ -2098,6 +2307,7 @@ public class ComponentScanner {
         return new TreePath(pathNodes.toArray());
     }
 
+    /** Evaluates a {@link #waitFor} condition. Must run on the EDT. */
     private boolean checkCondition(String condType, Map<String, Object> params) {
         return switch (condType.toUpperCase()) {
             case "WINDOW_TITLE" -> {
@@ -2145,17 +2355,8 @@ public class ComponentScanner {
                 int expected = Integer.parseInt(getString(params, "expectedValue"));
                 yield getVisibleWindows().size() == expected;
             }
-            case "EDT_IDLE" -> {
-                try {
-                    SwingUtilities.invokeAndWait(() -> { });
-                    yield true;
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    yield false;
-                } catch (Exception e) {
-                    yield false;
-                }
-            }
+            // Reached on the EDT, which is then by definition processing events.
+            case "EDT_IDLE" -> true;
             default -> throw new IllegalArgumentException("Unknown condition type: " + condType);
         };
     }
