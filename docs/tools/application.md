@@ -25,12 +25,17 @@ becomes the active one.
 - Requires `swing.mcp.agent-jar` (or the `SWING_MCP_AGENT_JAR` environment
   variable) to point at the swing-mcp-agent shaded jar.
 - A launched application is terminated when the session is closed with
-  `stop_app`.
+  `stop_app`, together with any processes it started (so a wrapper such as
+  `xvfb-run` does not leave the JVM behind). Its captured output file is
+  deleted at the same time.
+- If the agent does not come up (the application exits, hangs before the agent
+  starts, or the agent cannot bind a port), the launch fails and the process is
+  stopped instead of being left running.
 - The `-javaagent` argument is inserted right after the java launcher (`java`,
   `javaw`, with or without a path or `.exe`), so JVM options belong in `command`
   after it, and a wrapper in front of it keeps working, e.g.
-  `env HDF5_PLUGIN_PATH=./plugins java -jar app.jar`. When the command contains no
-  java launcher, the argument goes after the first token.
+  `env HDF5_PLUGIN_PATH=./plugins java -jar app.jar`. A command that contains no
+  java launcher is rejected, since the agent could not be loaded into it.
 - Use `env` for variables an application's own launcher script would normally
   set (native library paths, plugin directories): without them, an application
   may start but fail silently later.
@@ -52,8 +57,9 @@ becomes the active one.
 - The target JVM must allow dynamic attach.
 - JavaFX windows only exist once `Application.start` has run, so attach after
   the UI is up.
-- An attached application keeps running when the session is closed — only the
-  connection is dropped.
+- An attached application keeps running when the session is closed. The
+  agent's listening socket is shut down, so attaching to the same JVM again and
+  again does not use up the agent port range.
 
 ## `stop_app`
 
