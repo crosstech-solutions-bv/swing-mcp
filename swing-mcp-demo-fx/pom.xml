@@ -41,7 +41,6 @@
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-failsafe-plugin</artifactId>
-                <version>3.5.2</version>
                 <configuration>
                     <!-- ServerRoundTripIT drives this demo through the real server over stdio.
                          The jars come from sibling modules built earlier in the reactor. -->
