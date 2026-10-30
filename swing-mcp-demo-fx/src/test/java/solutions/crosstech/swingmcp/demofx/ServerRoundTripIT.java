@@ -312,4 +312,20 @@ class ServerRoundTripIT {
         String details = tool("get_component_details", JSON.createObjectNode().put("uid", state));
         assertTrue(details.contains("Canvas zoom 100%, offset (60,0)"), "SHIFT+wheel pans: " + details);
     }
+
+    @Test
+    @Order(10)
+    @DisplayName("a tool error reaches the client once, with its message")
+    void toolErrorText() throws Exception {
+        ObjectNode params = JSON.createObjectNode().put("name", "select_session");
+        params.set("arguments", JSON.createObjectNode().put("sessionId", "no-such-session"));
+        JsonNode r = rpc("tools/call", params);
+        assertTrue(r.path("result").path("isError").asBoolean(false), r.toString());
+        String text = r.path("result").path("content").path(0).path("text").asText();
+        String message = "Unknown session id 'no-such-session'";
+        // Spring AI 2.0.1 and 2.0.2 append the root cause's message to the exception's own,
+        // which repeats a message that has no cause.
+        assertEquals(text.indexOf(message), text.lastIndexOf(message), "message repeated: " + text);
+        assertTrue(text.contains(message), text);
+    }
 }
