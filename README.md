@@ -85,8 +85,8 @@ Claude Desktop, Claude Code, VS Code, Cursor, Devin Desktop, IntelliJ IDEA, Code
 
 Try it against the demo app:
 
-1. `launch_app` with `java -jar swing-mcp-demo/target/swing-mcp-demo-1.3.0.jar`
-   (or the JavaFX demo: `swing-mcp-demo-fx/target/swing-mcp-demo-fx-1.3.0.jar`)
+1. `launch_app` with `java -jar swing-mcp-demo/target/swing-mcp-demo-1.4.0.jar`
+   (or the JavaFX demo: `swing-mcp-demo-fx/target/swing-mcp-demo-fx-1.4.0.jar`)
 2. `take_snapshot` to discover component UIDs
 3. `click`, `fill`, `select_option`, … to interact
 
