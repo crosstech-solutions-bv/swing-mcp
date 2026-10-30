@@ -1,15 +1,23 @@
 package solutions.crosstech.swingmcp.server.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import solutions.crosstech.swingmcp.server.config.SwingMcpProperties;
+import solutions.crosstech.swingmcp.server.domain.AgentCommandException;
+import solutions.crosstech.swingmcp.server.registry.SessionRegistry;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 
 /**
@@ -43,7 +51,76 @@ class LaunchCommandTest {
     @Test
     void argumentsNamedLikeJavaDoNotCount() {
         assertEquals(1, ApplicationService.agentArgIndex(List.of("java", "-jar", "java-app.jar")));
-        assertEquals(1, ApplicationService.agentArgIndex(List.of("./run.sh", "-Dx=<y>", "app")));
+    }
+
+    @Test
+    void commandWithoutAJavaLauncherIsRejected() {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+            () -> ApplicationService.agentArgIndex(List.of("./run.sh", "-Dx=<y>", "app")));
+        assertTrue(e.getMessage().contains("Java launcher"), e.getMessage());
+        assertThrows(IllegalArgumentException.class,
+            () -> ApplicationService.agentArgIndex(List.of("rm", "-rf", "java-stuff")));
+    }
+
+    @Test
+    void launchRejectsANonJavaCommandBeforeStartingAnything() throws Exception {
+        Path jar = Files.createFile(tempDir.resolve("agent.jar"));
+        SwingMcpProperties properties = new SwingMcpProperties();
+        properties.setAgentJar(jar.toString());
+        ApplicationService service = new ApplicationService(new SessionRegistry(), properties);
+        Path marker = tempDir.resolve("ran");
+        assertThrows(IllegalArgumentException.class,
+            () -> service.launch("touch " + marker, null));
+        assertFalse(Files.exists(marker));
+    }
+
+    /**
+     * When the agent cannot start it says so in the response file: launch fails
+     * at once with that reason, and the process it started (wrapper and child)
+     * is killed and its files are removed.
+     */
+    @Test
+    @EnabledOnOs({OS.LINUX, OS.MAC})
+    void failedLaunchKillsTheProcessTreeAndCleansUp() throws Exception {
+        // A fake "java" launcher: records its pid and its child's, reports an agent
+        // failure through the response file, then keeps running like a stuck app.
+        Path fakeJava = tempDir.resolve("java");
+        Files.writeString(fakeJava, """
+            #!/bin/sh
+            echo $$ > "$PID_DIR/parent"
+            for a in "$@"; do
+              case "$a" in -javaagent:*) rf="${a##*responseFile=}" ;; esac
+            done
+            sleep 300 &
+            echo $! > "$PID_DIR/child"
+            echo "ERROR No free port in range [1, 2]" > "$rf"
+            wait
+            """);
+        Files.setPosixFilePermissions(fakeJava, PosixFilePermissions.fromString("rwx------"));
+        Path jar = Files.createFile(tempDir.resolve("agent.jar"));
+        SwingMcpProperties properties = new SwingMcpProperties();
+        properties.setAgentJar(jar.toString());
+        SessionRegistry registry = new SessionRegistry();
+        ApplicationService service = new ApplicationService(registry, properties);
+
+        long start = System.nanoTime();
+        AgentCommandException e = assertThrows(AgentCommandException.class,
+            () -> service.launch(fakeJava + " -jar app.jar", null, null, Map.of("PID_DIR", tempDir.toString())));
+        assertTrue(e.getMessage().contains("No free port in range [1, 2]"), e.getMessage());
+        assertTrue(System.nanoTime() - start < TimeUnit.SECONDS.toNanos(20), "did not fail fast");
+        assertFalse(registry.hasSession());
+
+        for (String name : List.of("parent", "child")) {
+            long pid = Long.parseLong(Files.readString(tempDir.resolve(name)).strip());
+            ProcessHandle.of(pid).ifPresent(h -> {
+                try {
+                    h.onExit().get(10, TimeUnit.SECONDS);
+                } catch (Exception ex) {
+                    // asserted below
+                }
+            });
+            assertFalse(ProcessHandle.of(pid).map(ProcessHandle::isAlive).orElse(false), name + " still alive");
+        }
     }
 
     @Test

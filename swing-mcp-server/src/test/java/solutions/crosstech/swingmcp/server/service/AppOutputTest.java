@@ -118,6 +118,14 @@ class AppOutputTest {
     }
 
     @Test
+    void closingTheSessionDeletesItsOutputLog() throws Exception {
+        writeLines(3, "l");
+        assertEquals(3, service.output("app", null, null).get("totalLines"));
+        service.stop("app");
+        assertFalse(Files.exists(log), "output log must be removed with its session");
+    }
+
+    @Test
     void sessionInfoReportsTheOutputFile() {
         assertEquals(log.toString(), service.status().get("outputFile"));
         assertEquals(log.toString(), service.listSessions().get(0).get("outputFile"));
