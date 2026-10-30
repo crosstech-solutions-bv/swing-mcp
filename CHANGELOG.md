@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-30
+
 ### Changed
 - Dependencies: Spring Boot 4.1.2, Lombok 1.18.48, JavaFX 21.0.13. Jackson,
   JUnit and Mockito versions now come from the Spring Boot BOM; the agent jar previously
@@ -370,7 +372,8 @@ Initial release.
 ### Changed
 - Logging migrated to `logback-spring.xml`; agent command handling updated for modal dialogs.
 
-[Unreleased]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.3.0...HEAD
+[Unreleased]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.4.0...HEAD
+[1.4.0]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.3.0...V1.4.0
 [1.3.0]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.2.3...V1.3.0
 [1.2.3]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.2.2...V1.2.3
 [1.2.2]: https://github.com/crosstech-solutions-bv/swing-mcp/compare/V1.2.1...V1.2.2

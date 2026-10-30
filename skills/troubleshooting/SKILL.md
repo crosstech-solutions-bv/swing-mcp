@@ -36,7 +36,7 @@ The server requires **JDK 21+**. Some GUI clients don't inherit the shell `PATH`
 The server needs the agent jar to preload (`launch_app`) or dynamically attach (`attach_to_app`) it.
 
 1. Check that `SWING_MCP_AGENT_JAR` (or the `swing.mcp.agent-jar` property) is set in the MCP server configuration's `env` block.
-2. Confirm the path is **absolute** and the file exists (e.g. `/path/to/swing-mcp/swing-mcp-agent/target/swing-mcp-agent-1.3.0.jar` after `mvn verify`).
+2. Confirm the path is **absolute** and the file exists (e.g. `/path/to/swing-mcp/swing-mcp-agent/target/swing-mcp-agent-1.4.0.jar` after `mvn verify`).
 3. Ask the user to restart the MCP server (or their AI client) after fixing the configuration.
 
 #### Symptom: `attach_to_app` fails against a running JVM
@@ -77,9 +77,9 @@ Based on the exact error and the user's environment (OS, MCP client), formulate 
   "mcpServers": {
     "swing": {
       "command": "java",
-      "args": ["-jar", "/absolute/path/to/swing-mcp-server-1.3.0.jar"],
+      "args": ["-jar", "/absolute/path/to/swing-mcp-server-1.4.0.jar"],
       "env": {
-        "SWING_MCP_AGENT_JAR": "/absolute/path/to/swing-mcp-agent-1.3.0.jar"
+        "SWING_MCP_AGENT_JAR": "/absolute/path/to/swing-mcp-agent-1.4.0.jar"
       }
     }
   }
@@ -96,7 +96,7 @@ If the issue is still unclear, run diagnostic commands to test the setup directl
 - `java -jar /path/to/swing-mcp-server-*.jar` from a terminal to see startup errors directly.
 - Inspect `${java.io.tmpdir}/swing-mcp-server.log` for stack traces of the server itself.
 - For the launched application's own stdout/stderr (its stack traces and log lines), call `get_app_output`.
-- Test against the bundled demo app: `launch_app` with `java -jar /path/to/swing-mcp-demo-1.3.0.jar`, then `take_snapshot`.
+- Test against the bundled demo app: `launch_app` with `java -jar /path/to/swing-mcp-demo-1.4.0.jar`, then `take_snapshot`.
 
 ### Step 6: Check GitHub for Existing Issues
 
