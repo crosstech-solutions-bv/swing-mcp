@@ -22,7 +22,7 @@
     {
       "registryType": "mcpb",
       "identifier": "https://github.com/crosstech-solutions-bv/swing-mcp/releases/download/V1.4.0/swing-mcp.mcpb",
-      "fileSha256": "9bc26492e03829fdf0e7949b29aac7b7107f2a3f62d1c6122ba82c4eebd0437c",
+      "fileSha256": "3b17b45a0392768ce042704587f61f92bcfc3d411ddbebd55d5466c217d4224d",
       "transport": {
         "type": "stdio"
       }
