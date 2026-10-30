@@ -191,6 +191,64 @@ class ServicesTest {
         assertTrue(received.contains(CommandType.WAIT_FOR));
     }
 
+    /** A wait longer than the tool timeout is not cut short by the server. */
+    @Test
+    void waitLongerThanTheToolTimeoutIsAwaited() throws Exception {
+        try (FakeAgentServer slow = new FakeAgentServer(req -> {
+                try {
+                    Thread.sleep(800);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return new CommandResponse(req.requestId(), true, "MET", null);
+            })) {
+            SessionRegistry slowRegistry = new SessionRegistry();
+            slowRegistry.set(new AttachedAppSession(ProcessHandle.current().pid(),
+                AgentConnection.connect(slow.port(), 200), slow.port()));
+            try {
+                assertEquals("MET", new WaitService(slowRegistry).waitFor("EDT_IDLE", null, null, 1000L));
+            } finally {
+                slowRegistry.clear();
+            }
+        }
+    }
+
+    @Test
+    void missingRequiredParametersAreNamed() {
+        InteractionService interaction = new InteractionService(registry);
+        assertMissing("text", () -> interaction.fill("comp-1", null));
+        assertMissing("uid", () -> interaction.fill(null, "x"));
+        assertMissing("uid", () -> interaction.focus(null));
+        assertMissing("text", () -> interaction.typeText(null, null));
+        assertMissing("path", () -> interaction.selectMenuItem(null));
+        assertMissing("path", () -> interaction.selectTreeNode("comp-1", null));
+        assertMissing("path", () -> interaction.selectContextMenuItem("comp-1", null));
+        assertMissing("keys", () -> interaction.pressKey(null));
+        assertMissing("text", () -> new ClipboardService(registry).setClipboard(null));
+        assertMissing("uid", () -> new SnapshotService(registry).componentDetails(null));
+        assertMissing("query", () -> new SnapshotService(registry).findComponent(null, null));
+        assertMissing("state", () -> new WindowService(registry).setWindowState(null));
+        assertMissing("conditionType", () -> new WaitService(registry).waitFor(null, null, null, null));
+        properties.getEvaluate().setEnabled(true);
+        assertMissing("code", () -> new EvaluateService(registry, properties).evaluate(null));
+        assertTrue(received.isEmpty(), "nothing may be sent: " + received);
+    }
+
+    private static void assertMissing(String name, org.junit.jupiter.api.function.Executable call) {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, call);
+        assertEquals("Missing required parameter: " + name, e.getMessage());
+    }
+
+    @Test
+    void toolTimeoutMustBePositiveAndFitAnInt() {
+        SwingMcpProperties p = new SwingMcpProperties();
+        assertThrows(IllegalArgumentException.class, () -> p.setToolTimeoutMs(0));
+        assertThrows(IllegalArgumentException.class, () -> p.setToolTimeoutMs(-1));
+        assertThrows(IllegalArgumentException.class, () -> p.setToolTimeoutMs(Integer.MAX_VALUE + 1L));
+        p.setToolTimeoutMs(1);
+        assertEquals(1, p.getToolTimeoutMs());
+    }
+
     @Test
     void evaluateServiceIsDisabledByDefault() {
         EvaluateService service = new EvaluateService(registry, properties);

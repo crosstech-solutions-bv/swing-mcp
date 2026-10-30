@@ -74,7 +74,7 @@ public class SnapshotService {
      */
     public Object findComponent(String query, String by) {
         Map<String, Object> params = new HashMap<>();
-        params.put("query", query);
+        params.put("query", Params.require("query", query));
         if (by != null && !by.isBlank()) {
             params.put("by", by);
         }
@@ -123,6 +123,6 @@ public class SnapshotService {
      * Returns detailed information about a component identified by UID.
      */
     public Object componentDetails(String uid) {
-        return registry.require().send(CommandType.GET_COMPONENT_DETAILS, Map.of("uid", uid));
+        return registry.require().send(CommandType.GET_COMPONENT_DETAILS, Map.of("uid", Params.require("uid", uid)));
     }
 }

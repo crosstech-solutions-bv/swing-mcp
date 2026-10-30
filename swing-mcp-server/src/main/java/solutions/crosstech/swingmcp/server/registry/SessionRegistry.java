@@ -49,7 +49,7 @@ public class SessionRegistry {
      * Returns the session with the given id, or the active session if the id
      * is null or blank.
      *
-     * @throws NoActiveSessionException if the session does not exist
+     * @throws NoActiveSessionException if no session is active, or none has the given id
      */
     public AppSession require(String sessionId) {
         if (sessionId == null || sessionId.isBlank()) {
@@ -57,9 +57,19 @@ public class SessionRegistry {
         }
         AppSession session = sessions.get(sessionId);
         if (session == null) {
-            throw new NoActiveSessionException();
+            throw unknownSession(sessionId);
         }
         return session;
+    }
+
+    /** The error for a session id that is not registered, naming the ids that are. */
+    private NoActiveSessionException unknownSession(String sessionId) {
+        if (sessions.isEmpty()) {
+            return new NoActiveSessionException("Unknown session id '" + sessionId
+                + "'. There are no sessions; use launch_app or attach_to_app first.");
+        }
+        return new NoActiveSessionException("Unknown session id '" + sessionId + "'. Active sessions: "
+            + new java.util.TreeSet<>(sessions.keySet()) + ". Use list_sessions to see them.");
     }
 
     /** Returns true if at least one session is registered. */
@@ -117,7 +127,7 @@ public class SessionRegistry {
      */
     public void select(String sessionId) {
         if (!sessions.containsKey(sessionId)) {
-            throw new NoActiveSessionException();
+            throw unknownSession(sessionId);
         }
         activeId.set(sessionId);
     }
